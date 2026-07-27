@@ -18,6 +18,7 @@ use App\Services\InvoiceService;
 use App\Services\OtpService;
 use App\Services\PlanService;
 use App\Services\ReminderService;
+use App\Services\TelegramService;
 use App\Services\TtsService;
 
 /**
@@ -38,6 +39,12 @@ class SettingsController extends Controller
             'pageTitle'  => __('nav.settings'),
             'settings'   => ReminderService::userSettings($userId),
             'hasAppPin'  => AppPinService::isSet($userId),
+            'telegram'   => [
+                'available' => TelegramService::isConfigured(),
+                'linked'    => !empty($user['telegram_chat_id']),
+                'username'  => (string) ($user['telegram_username'] ?? ''),
+                'bot'       => (string) App::i()->settings()->get('tg_bot_username', ''),
+            ],
             'numbers'    => App::i()->db()->all('SELECT * FROM whatsapp_numbers WHERE user_id = ? ORDER BY is_primary DESC, id ASC', [$userId]),
             'sessions'   => App::i()->db()->all(
                 'SELECT id, type, ip, user_agent, last_used_at, created_at FROM sessions WHERE user_id = ? AND revoked = 0 ORDER BY last_used_at DESC LIMIT 20',
@@ -208,6 +215,42 @@ class SettingsController extends Controller
         AppPinService::clear((int) $user['id']);
 
         Session::flash('success', __('pin.cleared'));
+        Response::redirect(url('/client/settings'));
+    }
+
+    /* ------------------------------------------------------------- Telegram */
+
+    /**
+     * Issue a one-time code. Telegram will not reveal a user's chat id until
+     * they message the bot, so linking has to start from their side: they send
+     * `/start <code>` and the webhook ties the two together.
+     */
+    public function connectTelegram(): void
+    {
+        $user = $this->requireUser();
+
+        if (!TelegramService::isConfigured()) {
+            Session::flash('error', 'Telegram is not switched on for this site yet.');
+            Response::back(url('/client/settings'));
+        }
+
+        $code = TelegramService::createLinkCode((int) $user['id']);
+        $bot = trim((string) App::i()->settings()->get('tg_bot_username', ''));
+
+        Session::flash('success', $bot !== ''
+            ? 'Open https://t.me/' . $bot . '?start=' . $code . ' and press Start. The code lasts 15 minutes.'
+            : 'Send this to the bot: /start ' . $code . ' — the code lasts 15 minutes.');
+
+        Response::redirect(url('/client/settings'));
+    }
+
+    public function disconnectTelegram(): void
+    {
+        $user = $this->requireUser();
+
+        TelegramService::unlink((int) $user['id']);
+
+        Session::flash('success', 'Telegram disconnected.');
         Response::redirect(url('/client/settings'));
     }
 

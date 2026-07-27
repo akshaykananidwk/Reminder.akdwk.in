@@ -10,6 +10,7 @@ use App\Core\Session;
 use App\Services\AuditService;
 use App\Services\GeminiService;
 use App\Services\MetaCloudService;
+use App\Services\TelegramService;
 use App\Services\TemplateService;
 use App\Services\WhatsAppService;
 
@@ -87,10 +88,12 @@ class ConfigController extends Controller
             'cloudHook' => App::i()->url('/api/wa_webhook.php'),
             'cloud'     => MetaCloudService::status(),
             'providers' => WhatsAppService::providerOrder(),
-            'queue'     => $db->all('SELECT * FROM wa_outbound_queue ORDER BY id DESC LIMIT 25'),
-            'log'       => $db->all('SELECT * FROM wa_outbound_log ORDER BY id DESC LIMIT 25'),
-            'inbound'   => $db->all('SELECT * FROM wa_inbound_raw ORDER BY id DESC LIMIT 25'),
-            'unknown'   => $db->all('SELECT * FROM unknown_inbound ORDER BY last_seen_at DESC LIMIT 25'),
+            // Each list pages independently, so opening page 3 of the log does
+            // not also move the inbox.
+            'log'       => $this->page('wa_outbound_log', 'log_page', 'id DESC'),
+            'inbound'   => $this->page('wa_inbound_raw', 'in_page', 'id DESC'),
+            'queue'     => $this->page('wa_outbound_queue', 'q_page', 'id DESC'),
+            'unknown'   => $this->page('unknown_inbound', 'unk_page', 'last_seen_at DESC'),
             'stats'     => [
                 'queued' => (int) $db->value('SELECT COUNT(*) FROM wa_outbound_queue WHERE status = "queued"', [], 0),
                 'failed' => (int) $db->value('SELECT COUNT(*) FROM wa_outbound_queue WHERE status = "failed"', [], 0),
@@ -182,6 +185,171 @@ class ConfigController extends Controller
             : 'Failed via ' . $via . ': ' . str_limit($result['response'], 300));
 
         Response::redirect(url('/admin/whatsapp'));
+    }
+
+    /* ------------------------------------------------- Paged lists + delete */
+
+    /** Rows per page across the admin message and log lists. */
+    private const PER_PAGE = 10;
+
+    /**
+     * Tables these lists are allowed to touch. Page and delete both check
+     * against this, so a table name can never arrive from the request — the
+     * query builder interpolates it, and an allow-list is the only safe way to
+     * do that.
+     */
+    private const LIST_TABLES = [
+        'wa_outbound_log'   => 'Outbound log',
+        'wa_inbound_raw'    => 'Inbound messages',
+        'wa_outbound_queue' => 'Outbound queue',
+        'unknown_inbound'   => 'Unknown senders',
+    ];
+
+    /**
+     * One page of a list, plus what the view needs to draw the pager.
+     *
+     * @return array{rows: array, page: int, pages: int, total: int, param: string, table: string}
+     */
+    private function page(string $table, string $param, string $order): array
+    {
+        if (!isset(self::LIST_TABLES[$table])) {
+            return ['rows' => [], 'page' => 1, 'pages' => 1, 'total' => 0, 'param' => $param, 'table' => $table];
+        }
+
+        $db = App::i()->db();
+        $total = (int) $db->value('SELECT COUNT(*) FROM `' . $table . '`', [], 0);
+        $pages = max(1, (int) ceil($total / self::PER_PAGE));
+        $page = max(1, min($pages, (int) Request::get($param, 1)));
+        $offset = ($page - 1) * self::PER_PAGE;
+
+        return [
+            'rows'  => $db->all('SELECT * FROM `' . $table . '` ORDER BY ' . $order . ' LIMIT ' . self::PER_PAGE . ' OFFSET ' . $offset),
+            'page'  => $page,
+            'pages' => $pages,
+            'total' => $total,
+            'param' => $param,
+            'table' => $table,
+        ];
+    }
+
+    /** Delete a single row from one of the listed tables. */
+    public function deleteRow(): void
+    {
+        $this->requireAdmin();
+
+        $table = (string) Request::post('table', '');
+        $id = (int) Request::post('id', 0);
+
+        if (!isset(self::LIST_TABLES[$table]) || $id <= 0) {
+            Session::flash('error', 'Nothing to delete.');
+            Response::back(url('/admin/whatsapp'));
+        }
+
+        App::i()->db()->query('DELETE FROM `' . $table . '` WHERE id = ?', [$id]);
+        AuditService::log('admin.row_deleted', $table, $id);
+
+        Session::flash('success', 'Deleted.');
+        Response::back(url('/admin/whatsapp'));
+    }
+
+    /**
+     * Empty a whole list.
+     *
+     * Requires the operator to type the table's name, because there is no undo
+     * and a stray click here loses the delivery history that failures are
+     * diagnosed from.
+     */
+    public function clearList(): void
+    {
+        $this->requireAdmin();
+
+        $table = (string) Request::post('table', '');
+        $confirm = trim((string) Request::post('confirm', ''));
+
+        if (!isset(self::LIST_TABLES[$table])) {
+            Session::flash('error', 'Unknown list.');
+            Response::back(url('/admin/whatsapp'));
+        }
+
+        if ($confirm !== $table) {
+            Session::flash('error', 'Type ' . $table . ' exactly to confirm. Nothing was deleted.');
+            Response::back(url('/admin/whatsapp'));
+        }
+
+        $count = (int) App::i()->db()->value('SELECT COUNT(*) FROM `' . $table . '`', [], 0);
+
+        // DELETE, not TRUNCATE: TRUNCATE cannot run inside a transaction, is
+        // blocked by foreign keys, and resets AUTO_INCREMENT — which would let
+        // a new row reuse an id that older logs still refer to.
+        App::i()->db()->query('DELETE FROM `' . $table . '`');
+        AuditService::log('admin.list_cleared', $table, null, ['rows' => $count]);
+
+        Session::flash('success', $count . ' row(s) deleted from ' . self::LIST_TABLES[$table] . '.');
+        Response::back(url('/admin/whatsapp'));
+    }
+
+    /* ------------------------------------------------------------- Telegram */
+
+    public function telegram(): void
+    {
+        $this->requireAdmin();
+        $db = App::i()->db();
+
+        $this->view('admin/telegram', [
+            'title'     => 'Telegram',
+            'pageTitle' => 'Telegram',
+            'settings'  => App::i()->settings(),
+            'status'    => TelegramService::status(),
+            'webhook'   => App::i()->url('/api/tg_webhook.php'),
+            'linked'    => (int) $db->value('SELECT COUNT(*) FROM users WHERE telegram_chat_id IS NOT NULL', [], 0),
+            'recent'    => $db->all(
+                'SELECT id, to_number, message, success, http_code, response, created_at
+                   FROM wa_outbound_log WHERE channel = "telegram" ORDER BY id DESC LIMIT 10'
+            ),
+        ], 'layouts/admin');
+    }
+
+    public function saveTelegram(): void
+    {
+        $this->requireAdmin();
+        $settings = App::i()->settings();
+
+        $settings->set('tg_enabled', Request::bool('tg_enabled') ? '1' : '0', false, 'telegram');
+        $settings->set('tg_send_reminders', Request::bool('tg_send_reminders') ? '1' : '0', false, 'telegram');
+
+        // Blank means "keep the stored token", so the masked field cannot wipe
+        // a working bot.
+        $token = trim((string) Request::post('tg_bot_token', ''));
+
+        if ($token !== '') {
+            $settings->set('tg_bot_token', $token, true, 'telegram');
+        }
+
+        $settings->refresh();
+        AuditService::log('settings.telegram_updated', 'settings');
+
+        Session::flash('success', __('common.saved'));
+        Response::redirect(url('/admin/telegram'));
+    }
+
+    public function testTelegram(): void
+    {
+        $this->requireAdmin();
+
+        $result = TelegramService::testConnection();
+
+        Session::flash($result['ok'] ? 'success' : 'error', $result['message'] . ' ' . $result['hint']);
+        Response::redirect(url('/admin/telegram'));
+    }
+
+    public function registerTelegramWebhook(): void
+    {
+        $this->requireAdmin();
+
+        $result = TelegramService::registerWebhook();
+
+        Session::flash($result['ok'] ? 'success' : 'error', $result['message']);
+        Response::redirect(url('/admin/telegram'));
     }
 
     /**

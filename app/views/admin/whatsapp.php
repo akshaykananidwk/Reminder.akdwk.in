@@ -154,44 +154,115 @@ $primary = (string) $settings->get('wa_provider', 'bulk');
     </div>
 </div>
 
-<div class="grid grid-2">
+<?php
+/** One delete button, so every list gets an identical, CSRF-protected one. */
+$deleteButton = static function (string $table, int $id) use ($csrf): void { ?>
+    <form method="post" action="<?= e(url('/admin/lists/delete')) ?>" style="display:inline"
+          onsubmit="return confirm('Delete this row?')">
+        <input type="hidden" name="csrf_token" value="<?= e($csrf) ?>">
+        <input type="hidden" name="table" value="<?= e($table) ?>">
+        <input type="hidden" name="id" value="<?= $id ?>">
+        <button class="btn btn-sm btn-danger" title="Delete" aria-label="Delete row">✕</button>
+    </form>
+<?php };
+?>
+
+<div class="grid grid-2 mb-2">
     <div class="card">
         <h3>Outbound log</h3>
         <div class="table-wrap">
             <table class="data">
-                <thead><tr><th>Time</th><th>To</th><th>Via</th><th>Message</th><th>OK</th></tr></thead>
+                <thead><tr><th>Time</th><th>To</th><th>Via</th><th>Message</th><th>OK</th><th></th></tr></thead>
                 <tbody>
-                <?php foreach ($log as $row): ?>
-                    <?php $via = (string) ($row['provider'] ?? 'bulk'); ?>
+                <?php foreach ($log['rows'] as $row): ?>
+                    <?php
+                    $via = (string) ($row['provider'] ?? 'bulk');
+                    $channel = (string) ($row['channel'] ?? 'whatsapp');
+                    ?>
                     <tr>
                         <td><?= e(to_user_time((string) $row['created_at'], 'd M H:i')) ?></td>
-                        <td><?= e(display_phone((string) $row['to_number'])) ?></td>
-                        <td><span class="badge badge-<?= str_starts_with($via, 'cloud') ? 'info' : 'muted' ?>"><?= e($via) ?></span></td>
-                        <td style="white-space:normal;max-width:280px"><?= e(str_limit((string) $row['message'], 80)) ?></td>
+                        <td><?= $channel === 'telegram' ? e((string) $row['to_number']) : e(display_phone((string) $row['to_number'])) ?></td>
+                        <td><span class="badge badge-<?= $channel === 'telegram' ? 'info' : (str_starts_with($via, 'cloud') ? 'info' : 'muted') ?>"><?= e($via) ?></span></td>
+                        <td style="white-space:normal;max-width:260px"><?= e(str_limit((string) $row['message'], 80)) ?></td>
                         <td><span class="badge badge-<?= (int) $row['success'] === 1 ? 'success' : 'danger' ?>"><?= (int) $row['http_code'] ?></span></td>
+                        <td><?php $deleteButton('wa_outbound_log', (int) $row['id']); ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+        <?php $list = $log; require __DIR__ . '/../partials/pager.php'; ?>
+    </div>
+
+    <div class="card">
+        <h3>Inbound messages</h3>
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr><th>Time</th><th>From</th><th>Message</th><th>Done</th><th></th></tr></thead>
+                <tbody>
+                <?php foreach ($inbound['rows'] as $row): ?>
+                    <tr>
+                        <td><?= e(to_user_time((string) $row['received_at'], 'd M H:i')) ?></td>
+                        <td><?= e(display_phone((string) $row['from_number'])) ?></td>
+                        <td style="white-space:normal;max-width:260px"><?= e(str_limit((string) $row['body'], 80)) ?></td>
+                        <td><span class="badge badge-<?= (int) $row['processed'] === 1 ? 'success' : 'muted' ?>"><?= (int) $row['processed'] === 1 ? 'yes' : 'pending' ?></span></td>
+                        <td><?php $deleteButton('wa_inbound_raw', (int) $row['id']); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php $list = $inbound; require __DIR__ . '/../partials/pager.php'; ?>
+    </div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <h3>Outbound queue</h3>
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr><th>Created</th><th>To</th><th>Message</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                <?php foreach ($queue['rows'] as $row): ?>
+                    <tr>
+                        <td><?= e(to_user_time((string) $row['created_at'], 'd M H:i')) ?></td>
+                        <td><?= e((string) $row['to_number']) ?></td>
+                        <td style="white-space:normal;max-width:240px"><?= e(str_limit((string) $row['message'], 70)) ?></td>
+                        <td>
+                            <span class="badge badge-<?= match ((string) $row['status']) {
+                                'sent' => 'success', 'failed' => 'danger', 'sending' => 'info', default => 'muted',
+                            } ?>"><?= e((string) $row['status']) ?></span>
+                            <?php if (!empty($row['last_error'])): ?>
+                                <div class="text-sm text-muted"><?= e(str_limit((string) $row['last_error'], 60)) ?></div>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php $deleteButton('wa_outbound_queue', (int) $row['id']); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php $list = $queue; require __DIR__ . '/../partials/pager.php'; ?>
     </div>
 
     <div class="card">
         <h3>Unknown senders</h3>
         <div class="table-wrap">
             <table class="data">
-                <thead><tr><th>Number</th><th>Hits</th><th>Last seen</th><th>Invited</th></tr></thead>
+                <thead><tr><th>Number</th><th>Hits</th><th>Last seen</th><th>Invited</th><th></th></tr></thead>
                 <tbody>
-                <?php foreach ($unknown as $row): ?>
+                <?php foreach ($unknown['rows'] as $row): ?>
                     <tr>
                         <td><?= e(display_phone((string) $row['from_number'])) ?></td>
                         <td><?= (int) $row['hits'] ?></td>
                         <td><?= e(human_diff((string) $row['last_seen_at'])) ?></td>
                         <td><?= $row['invite_sent_at'] ? '✅' : '—' ?></td>
+                        <td><?php $deleteButton('unknown_inbound', (int) $row['id']); ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+        <?php $list = $unknown; require __DIR__ . '/../partials/pager.php'; ?>
     </div>
 </div>

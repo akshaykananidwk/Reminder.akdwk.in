@@ -99,6 +99,8 @@ $router->group('/client', ['auth'], function ($r): void {
     $r->post('/settings/password', ['Client\SettingsController', 'changePassword'], ['csrf']);
     $r->post('/settings/app-pin', ['Client\SettingsController', 'saveAppPin'], ['csrf']);
     $r->post('/settings/app-pin/remove', ['Client\SettingsController', 'removeAppPin'], ['csrf']);
+    $r->post('/settings/telegram/connect', ['Client\SettingsController', 'connectTelegram'], ['csrf']);
+    $r->post('/settings/telegram/disconnect', ['Client\SettingsController', 'disconnectTelegram'], ['csrf']);
     $r->post('/settings/numbers', ['Client\SettingsController', 'addNumber'], ['csrf']);
     $r->post('/settings/numbers/{id}/delete', ['Client\SettingsController', 'removeNumber'], ['csrf']);
     $r->get('/devices', ['Client\SettingsController', 'devices']);
@@ -157,6 +159,12 @@ $router->group('/admin', ['admin'], function ($r): void {
     $r->post('/whatsapp', ['Admin\ConfigController', 'saveWhatsapp'], ['csrf']);
     $r->post('/whatsapp/test', ['Admin\ConfigController', 'testWhatsapp'], ['csrf']);
     $r->post('/whatsapp/test-cloud', ['Admin\ConfigController', 'testCloud'], ['csrf']);
+    $r->post('/lists/delete', ['Admin\ConfigController', 'deleteRow'], ['csrf']);
+    $r->post('/lists/clear', ['Admin\ConfigController', 'clearList'], ['csrf']);
+    $r->get('/telegram', ['Admin\ConfigController', 'telegram']);
+    $r->post('/telegram', ['Admin\ConfigController', 'saveTelegram'], ['csrf']);
+    $r->post('/telegram/test', ['Admin\ConfigController', 'testTelegram'], ['csrf']);
+    $r->post('/telegram/webhook', ['Admin\ConfigController', 'registerTelegramWebhook'], ['csrf']);
     $r->get('/ai', ['Admin\ConfigController', 'ai']);
     $r->post('/ai', ['Admin\ConfigController', 'saveAi'], ['csrf']);
     $r->post('/ai/test', ['Admin\ConfigController', 'testAi'], ['csrf']);

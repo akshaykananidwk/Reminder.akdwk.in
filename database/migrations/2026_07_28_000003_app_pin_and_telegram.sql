@@ -76,6 +76,20 @@ SET @sql := IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- Every enum that records where something came from has to learn the new
+-- channel, or the inserts fail (strict mode) or silently truncate (otherwise).
+ALTER TABLE `ai_queue`
+  MODIFY COLUMN `source` ENUM('whatsapp','telegram','app','web','api') NOT NULL DEFAULT 'whatsapp';
+
+ALTER TABLE `reminders`
+  MODIFY COLUMN `source` ENUM('whatsapp','telegram','app','web','google','api','system') NOT NULL DEFAULT 'web';
+
+ALTER TABLE `notes`
+  MODIFY COLUMN `source` ENUM('whatsapp','telegram','app','web','api') NOT NULL DEFAULT 'app';
+
+ALTER TABLE `templates`
+  MODIFY COLUMN `channel` ENUM('whatsapp','telegram','push','email') NOT NULL DEFAULT 'whatsapp';
+
 INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`, `setting_group`, `is_encrypted`) VALUES
   ('tg_enabled','0','telegram',0),
   ('tg_bot_token','','telegram',1),

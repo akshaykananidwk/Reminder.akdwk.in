@@ -247,6 +247,30 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .badge-danger  { background: var(--red-100); color: var(--red); }
 .badge-secondary { background: var(--surface); color: var(--muted); }
 .badge-info { background: #e6f1fb; color: #1b6bb0; }
+.badge-muted { background: var(--surface); color: var(--muted); }
+
+/* Pager used by the admin message and log lists ------------------------- */
+.pager {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.pager-info { flex: 1 1 auto; min-width: 120px; }
+.pager-links { display: flex; flex-wrap: wrap; gap: 4px; }
+.pager-links .btn { min-width: 34px; padding: 5px 9px; }
+.pager-links [aria-current="page"] { pointer-events: none; }
+
+.pager-clear { display: flex; gap: 6px; align-items: center; }
+.pager-clear input {
+    width: 150px; padding: 5px 9px; font-size: 12.5px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+}
+
+/* At 360px the pager must stack rather than push the card sideways. */
+@media (max-width: 560px) {
+    .pager { flex-direction: column; align-items: stretch; }
+    .pager-clear { width: 100%; }
+    .pager-clear input { flex: 1 1 auto; width: auto; }
+}
 
 .chip {
     display: inline-flex; align-items: center; gap: 6px;

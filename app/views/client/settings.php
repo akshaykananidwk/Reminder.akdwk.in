@@ -138,6 +138,36 @@
         <?php endif; ?>
     </div>
 
+    <?php if (!empty($telegram['available'])): ?>
+        <div class="card">
+            <h3>Telegram</h3>
+
+            <?php if (!empty($telegram['linked'])): ?>
+                <p class="text-sm">
+                    <span class="badge badge-success">Connected</span>
+                    <?= $telegram['username'] !== '' ? ' @' . e($telegram['username']) : '' ?>
+                </p>
+                <p class="text-sm text-muted">Your reminders arrive on Telegram as well as WhatsApp.</p>
+
+                <form method="post" action="<?= e(url('/client/settings/telegram/disconnect')) ?>"
+                      onsubmit="return confirm('Disconnect Telegram?')">
+                    <input type="hidden" name="csrf_token" value="<?= e($csrf) ?>">
+                    <button class="btn btn-outline btn-block">Disconnect Telegram</button>
+                </form>
+            <?php else: ?>
+                <p class="text-sm text-muted">
+                    Get your reminders on Telegram too — no 24-hour limit and nothing to pay.
+                    Press the button, then send the bot the command it gives you.
+                </p>
+
+                <form method="post" action="<?= e(url('/client/settings/telegram/connect')) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= e($csrf) ?>">
+                    <button class="btn btn-block">Connect Telegram</button>
+                </form>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
     <div class="card">
         <h3><?= t('pin.title') ?></h3>
         <p class="text-sm text-muted"><?= t('pin.intro') ?></p>

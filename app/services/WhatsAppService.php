@@ -46,6 +46,45 @@ class WhatsAppService
         return App::i()->db()->insert('wa_outbound_queue', [
             'user_id'      => $userId,
             'to_number'    => $number,
+            'channel'      => 'whatsapp',
+            'message'      => $message,
+            'media_url'    => $mediaUrl,
+            'template_key' => $templateKey,
+            'priority'     => $priority,
+            'status'       => 'queued',
+            'scheduled_at' => $scheduledAt,
+            'created_at'   => now_utc(),
+        ]);
+    }
+
+    /**
+     * Queue a Telegram message on the same queue, so it inherits the worker,
+     * the retry policy and the history rather than growing a parallel one.
+     */
+    public static function queueTelegram(
+        int $userId,
+        string $message,
+        ?string $mediaUrl = null,
+        int $priority = 5,
+        ?string $templateKey = null,
+        ?string $scheduledAt = null
+    ): int {
+        if (trim($message) === '' || !TelegramService::isConfigured()) {
+            return 0;
+        }
+
+        $chatId = App::i()->db()->value('SELECT telegram_chat_id FROM users WHERE id = ?', [$userId]);
+
+        if (!is_string($chatId) || $chatId === '') {
+            return 0;
+        }
+
+        return App::i()->db()->insert('wa_outbound_queue', [
+            'user_id'      => $userId,
+            // The chat id lives in to_number: it is the address for this
+            // channel, exactly as the phone number is for WhatsApp.
+            'to_number'    => mb_substr($chatId, 0, 20),
+            'channel'      => 'telegram',
             'message'      => $message,
             'media_url'    => $mediaUrl,
             'template_key' => $templateKey,
@@ -75,14 +114,25 @@ class WhatsAppService
             return 0;
         }
 
-        return self::queue(
+        $userId = isset($user['id']) ? (int) $user['id'] : null;
+
+        $queued = self::queue(
             $number ?: (string) ($user['phone'] ?? ''),
             $body,
-            isset($user['id']) ? (int) $user['id'] : null,
+            $userId,
             null,
             $priority,
             $templateKey
         );
+
+        // Mirror to Telegram when the user has linked it. Deliberately a copy
+        // rather than a replacement: the point of a reminder is that it
+        // arrives, and two cheap channels beat one that may be down.
+        if ($userId !== null && App::i()->settings()->bool('tg_send_reminders', true)) {
+            self::queueTelegram($userId, $body, null, $priority, $templateKey);
+        }
+
+        return $queued;
     }
 
     /* ------------------------------------------------------------- Sending */
@@ -228,6 +278,40 @@ class WhatsAppService
         ];
     }
 
+    /**
+     * Deliver one queued Telegram message. Same return shape as sendNow(), so
+     * the worker's success, retry and backoff handling needs no special case.
+     */
+    public static function sendTelegramNow(string $chatId, string $message, ?string $mediaUrl = null, ?int $userId = null, ?int $queueId = null): array
+    {
+        if (!TelegramService::isConfigured()) {
+            return ['ok' => false, 'status' => 0, 'response' => 'Telegram is not configured', 'latency_ms' => 0, 'provider' => 'telegram', 'fatal' => true];
+        }
+
+        $requestId = Crypto::randomToken(8);
+        $result = TelegramService::send($chatId, $message, $mediaUrl);
+
+        self::log(
+            $queueId,
+            $userId,
+            $chatId,
+            $message,
+            $requestId,
+            ['status' => $result['status'], 'body' => $result['response'], 'error' => null, 'latency_ms' => $result['latency_ms']],
+            $result['ok'],
+            'telegram',
+            'telegram'
+        );
+
+        return [
+            'ok'         => $result['ok'],
+            'status'     => $result['status'],
+            'response'   => $result['response'],
+            'latency_ms' => $result['latency_ms'],
+            'provider'   => 'telegram',
+        ];
+    }
+
     /** Meta WhatsApp Cloud API. */
     private static function sendViaCloud(string $number, string $message, ?string $mediaUrl, ?int $userId, ?int $queueId): array
     {
@@ -345,13 +429,21 @@ class WhatsAppService
                 continue;
             }
 
-            $result = self::sendNow(
-                (string) $row['to_number'],
-                (string) $row['message'],
-                $row['media_url'] ?: null,
-                $row['user_id'] !== null ? (int) $row['user_id'] : null,
-                $id
-            );
+            $result = ((string) ($row['channel'] ?? 'whatsapp')) === 'telegram'
+                ? self::sendTelegramNow(
+                    (string) $row['to_number'],
+                    (string) $row['message'],
+                    $row['media_url'] ?: null,
+                    $row['user_id'] !== null ? (int) $row['user_id'] : null,
+                    $id
+                )
+                : self::sendNow(
+                    (string) $row['to_number'],
+                    (string) $row['message'],
+                    $row['media_url'] ?: null,
+                    $row['user_id'] !== null ? (int) $row['user_id'] : null,
+                    $id
+                );
 
             if ($result['ok']) {
                 $db->update('wa_outbound_queue', [
@@ -543,13 +635,14 @@ class WhatsAppService
         }
     }
 
-    private static function log(?int $queueId, ?int $userId, string $number, string $message, string $requestId, array $result, bool $ok, string $provider = 'bulk'): void
+    private static function log(?int $queueId, ?int $userId, string $number, string $message, string $requestId, array $result, bool $ok, string $provider = 'bulk', string $channel = 'whatsapp'): void
     {
         try {
             App::i()->db()->insert('wa_outbound_log', [
                 'queue_id'   => $queueId,
                 'user_id'    => $userId,
                 'to_number'  => $number,
+                'channel'    => $channel,
                 'message'    => mb_substr($message, 0, 4000),
                 'provider'   => $provider,
                 'request_id' => $requestId,

@@ -75,6 +75,12 @@ INSERT IGNORE INTO `settings` (`setting_key`,`setting_value`,`setting_group`,`is
 ('wa_cloud_template_name','','whatsapp',0),
 ('wa_cloud_template_lang','gu','whatsapp',0),
 
+('tg_enabled','0','telegram',0),
+('tg_bot_token','','telegram',1),
+('tg_bot_username','','telegram',0),
+('tg_webhook_secret','','telegram',0),
+('tg_send_reminders','1','telegram',0),
+
 ('gemini_api_key','','ai',1),
 ('gemini_api_key_2','','ai',1),
 ('gemini_model','gemini-2.0-flash','ai',0),

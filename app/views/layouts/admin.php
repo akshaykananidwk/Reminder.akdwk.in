@@ -20,6 +20,7 @@ $nav = [
 
 $navConfig = [
     ['/admin/whatsapp', '💬', __('admin.whatsapp')],
+    ['/admin/telegram', '✈️', 'Telegram'],
     ['/admin/ai', '🤖', __('admin.ai')],
     ['/admin/templates', '📝', __('admin.templates')],
     ['/admin/content', '🌐', __('admin.content')],

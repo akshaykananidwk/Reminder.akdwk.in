@@ -101,6 +101,10 @@ CREATE TABLE IF NOT EXISTS `users` (
   `city` VARCHAR(120) NULL,
   `avatar` VARCHAR(255) NULL,
   `google_id` VARCHAR(64) NULL,
+  -- Telegram, linked by sending /start <code> to the bot.
+  `telegram_chat_id` VARCHAR(32) NULL,
+  `telegram_username` VARCHAR(64) NULL,
+  `telegram_linked_at` DATETIME NULL,
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,
   `is_verified` TINYINT(1) NOT NULL DEFAULT 0,
   `reminders_paused` TINYINT(1) NOT NULL DEFAULT 0,
@@ -121,6 +125,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   UNIQUE KEY `uq_referral_code` (`referral_code`),
   KEY `idx_users_plan` (`plan_id`),
   KEY `idx_users_active` (`is_active`, `deleted_at`),
+  KEY `idx_users_telegram` (`telegram_chat_id`),
   CONSTRAINT `fk_users_plan` FOREIGN KEY (`plan_id`) REFERENCES `plans` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -314,7 +319,7 @@ CREATE TABLE IF NOT EXISTS `reminders` (
   `person_phone` VARCHAR(20) NULL,
   `location` VARCHAR(255) NULL,
   `color` VARCHAR(9) NULL,
-  `source` ENUM('whatsapp','app','web','google','api','system') NOT NULL DEFAULT 'web',
+  `source` ENUM('whatsapp','telegram','app','web','google','api','system') NOT NULL DEFAULT 'web',
   `source_ref` VARCHAR(120) NULL,
   `assigned_to` INT UNSIGNED NULL,
   `parent_id` INT UNSIGNED NULL COMMENT 'follow-up chain parent',
@@ -480,7 +485,7 @@ CREATE TABLE IF NOT EXISTS `notes` (
   `user_id` INT UNSIGNED NOT NULL,
   `title` VARCHAR(255) NULL,
   `body` TEXT NOT NULL,
-  `source` ENUM('whatsapp','app','web','api') NOT NULL DEFAULT 'app',
+  `source` ENUM('whatsapp','telegram','app','web','api') NOT NULL DEFAULT 'app',
   `source_ref` VARCHAR(120) NULL,
   `converted_reminder_id` INT UNSIGNED NULL,
   `pinned` TINYINT(1) NOT NULL DEFAULT 0,
@@ -577,10 +582,26 @@ CREATE TABLE IF NOT EXISTS `unknown_inbound` (
   UNIQUE KEY `uq_unknown_number` (`from_number`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- One-time codes a user sends to the Telegram bot as `/start <code>` to link
+-- their account. Short-lived and single use.
+CREATE TABLE IF NOT EXISTS `telegram_link_codes` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` INT UNSIGNED NOT NULL,
+  `code` VARCHAR(32) NOT NULL,
+  `expires_at` DATETIME NOT NULL,
+  `used_at` DATETIME NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_tg_code` (`code`),
+  KEY `idx_tg_user` (`user_id`),
+  CONSTRAINT `fk_tg_code_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `wa_outbound_queue` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` INT UNSIGNED NULL,
   `to_number` VARCHAR(20) NOT NULL,
+  `channel` VARCHAR(16) NOT NULL DEFAULT 'whatsapp' COMMENT 'whatsapp | telegram',
   `message` TEXT NOT NULL,
   `media_url` VARCHAR(512) NULL,
   `template_key` VARCHAR(60) NULL,
@@ -604,6 +625,7 @@ CREATE TABLE IF NOT EXISTS `wa_outbound_log` (
   `queue_id` INT UNSIGNED NULL,
   `user_id` INT UNSIGNED NULL,
   `to_number` VARCHAR(20) NOT NULL,
+  `channel` VARCHAR(16) NOT NULL DEFAULT 'whatsapp',
   `message` TEXT NULL,
   `provider` VARCHAR(32) NOT NULL DEFAULT 'bulk',
   `request_id` VARCHAR(64) NULL,
@@ -623,7 +645,7 @@ CREATE TABLE IF NOT EXISTS `ai_queue` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` INT UNSIGNED NOT NULL,
   `inbound_id` INT UNSIGNED NULL,
-  `source` ENUM('whatsapp','app','web','api') NOT NULL DEFAULT 'whatsapp',
+  `source` ENUM('whatsapp','telegram','app','web','api') NOT NULL DEFAULT 'whatsapp',
   `text` TEXT NOT NULL,
   `media_url` VARCHAR(512) NULL,
   `status` ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
@@ -820,7 +842,7 @@ CREATE TABLE IF NOT EXISTS `templates` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `template_key` VARCHAR(60) NOT NULL,
   `lang` ENUM('gu','hi','en') NOT NULL DEFAULT 'gu',
-  `channel` ENUM('whatsapp','push','email') NOT NULL DEFAULT 'whatsapp',
+  `channel` ENUM('whatsapp','telegram','push','email') NOT NULL DEFAULT 'whatsapp',
   `subject` VARCHAR(190) NULL,
   `body` TEXT NOT NULL,
   `variables` VARCHAR(255) NULL,
