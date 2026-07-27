@@ -220,6 +220,18 @@ class UpdateService
             $copied = self::copyTree($sourceDir, $app->root(), $ignore);
             $steps[] = ['step' => 'copy', 'status' => 'ok', 'detail' => $copied . ' file(s) updated'];
 
+            // Throw away the compiled bytecode of the files we just replaced.
+            //
+            // Without this the next request runs a mixture of old and new code
+            // for up to opcache.revalidate_freq seconds (60 on a stock aaPanel
+            // box), because opcache only re-checks a file's timestamp that
+            // often. A new view calling a method that opcache still has the old
+            // version of is a fatal error, which is how a completed update
+            // still ends on the "Something went wrong" page — and why it works
+            // again a minute later.
+            $opcache = self::resetOpcache();
+            $steps[] = ['step' => 'opcache', 'status' => 'ok', 'detail' => $opcache];
+
             /* 6. Migrations ------------------------------------------------ */
             $migrated = self::runMigrations();
             $steps[] = ['step' => 'migrations', 'status' => 'ok', 'detail' => $migrated === [] ? 'none pending' : implode(', ', $migrated)];
@@ -362,6 +374,69 @@ class UpdateService
     }
 
     /* ------------------------------------------------------------- Helpers */
+
+    /**
+     * Drop the compiled bytecode for the application's PHP files.
+     *
+     * `opcache_reset()` is the clean way, but many shared hosts disable it, and
+     * on php-fpm it only clears the pool that happens to serve this request.
+     * So it falls back to invalidating each file individually, which works
+     * whenever `validate_timestamps` is on, and reports honestly which it
+     * managed rather than claiming success either way.
+     */
+    public static function resetOpcache(): string
+    {
+        if (!function_exists('opcache_get_status') || !function_exists('opcache_reset')) {
+            return 'opcache not installed';
+        }
+
+        $status = @opcache_get_status(false);
+
+        if ($status === false || empty($status['opcache_enabled'])) {
+            return 'opcache not enabled';
+        }
+
+        if (@opcache_reset()) {
+            return 'reset';
+        }
+
+        // Reset is disabled (opcache.restrict_api, or a hardened host).
+        if (!function_exists('opcache_invalidate')) {
+            return 'could not be cleared — restart PHP-FPM if the site behaves oddly';
+        }
+
+        $invalidated = 0;
+
+        foreach (['/app', '/api', '/install', '/cron', '/public'] as $dir) {
+            $path = App::i()->root() . $dir;
+
+            if (!is_dir($path)) {
+                continue;
+            }
+
+            $files = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)
+            );
+
+            foreach ($files as $file) {
+                if ($file->isFile() && $file->getExtension() === 'php' && @opcache_invalidate($file->getPathname(), true)) {
+                    $invalidated++;
+                }
+            }
+        }
+
+        foreach (['index.php'] as $rootFile) {
+            $path = App::i()->root() . '/' . $rootFile;
+
+            if (is_file($path) && @opcache_invalidate($path, true)) {
+                $invalidated++;
+            }
+        }
+
+        return $invalidated > 0
+            ? $invalidated . ' file(s) invalidated'
+            : 'could not be cleared — restart PHP-FPM if the site behaves oddly';
+    }
 
     /** The protected list plus anything the release's .updateignore adds. */
     public static function ignoreList(string $sourceDir): array
@@ -558,6 +633,11 @@ class UpdateService
 
                 return false;
             }
+
+            // The rollback replaced files too, so the same stale-bytecode trap
+            // applies in reverse: without this the site would keep running the
+            // failed release's compiled code over the restored files.
+            self::resetOpcache();
 
             $dbRestore = BackupService::restoreDatabase($backupPath);
 

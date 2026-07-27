@@ -127,6 +127,36 @@ final class App
         return $path === '' ? $base : $base . '/' . ltrim($path, '/');
     }
 
+    /**
+     * Is an admin signed in right now?
+     *
+     * Reads $_SESSION directly and never touches the database. This runs from
+     * the exception handler, where the failure may well be the database or the
+     * Auth class itself — anything that could throw a second time would replace
+     * a useful error with a blank page.
+     */
+    private static function isAdminSession(): bool
+    {
+        try {
+            if (PHP_SAPI === 'cli') {
+                return false;
+            }
+
+            if (session_status() !== PHP_SESSION_ACTIVE) {
+                // Only read an existing session; never start one from here.
+                if (empty($_COOKIE['KRSESS']) || headers_sent()) {
+                    return false;
+                }
+
+                @session_start(['read_and_close' => true]);
+            }
+
+            return (int) ($_SESSION['admin_id'] ?? 0) > 0;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     private function configureErrorHandling(): void
     {
         $debug = (bool) $this->config('app.debug', false);
@@ -156,6 +186,19 @@ final class App
             if ((bool) $this->config('app.debug', false)) {
                 echo '<pre>' . htmlspecialchars((string) $e, ENT_QUOTES, 'UTF-8') . '</pre>';
             } else {
+                // A signed-in admin sees the actual fault. "Something went
+                // wrong" tells the one person who can fix it nothing at all,
+                // and sends them to the server over SSH to read a log file.
+                // Ordinary visitors still get the friendly page.
+                $error = self::isAdminSession() ? [
+                    'message' => $e->getMessage(),
+                    'type'    => $e::class,
+                    'file'    => $e->getFile(),
+                    'line'    => $e->getLine(),
+                    'trace'   => $e->getTraceAsString(),
+                    'log'     => 'storage/logs/app-' . date('Y-m-d') . '.log',
+                ] : null;
+
                 $view = $this->root() . '/app/views/errors/500.php';
                 if (is_file($view)) {
                     require $view;

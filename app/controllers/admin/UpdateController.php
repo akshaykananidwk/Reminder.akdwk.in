@@ -198,7 +198,16 @@ class UpdateController extends Controller
         @set_time_limit(900);
         @ini_set('memory_limit', '512M');
 
-        $result = UpdateService::run((int) $admin['id']);
+        // An update takes minutes and PHP locks the session file for the whole
+        // request, so without this every other tab this admin has open hangs
+        // until it finishes.
+        Session::pause();
+
+        try {
+            $result = UpdateService::run((int) $admin['id']);
+        } finally {
+            Session::resume();
+        }
 
         AuditService::log('update.run', 'update', $result['history_id'], ['ok' => $result['ok']]);
 

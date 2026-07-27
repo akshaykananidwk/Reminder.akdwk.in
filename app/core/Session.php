@@ -38,12 +38,46 @@ final class Session
         self::$started = true;
 
         // Rotate the session id periodically to limit fixation windows.
+        //
+        // Only while the response headers can still be changed. session_
+        // regenerate_id(true) deletes the old session immediately, so if the
+        // new id cannot reach the browser as a Set-Cookie the user is left
+        // holding an id that no longer exists — i.e. silently signed out. That
+        // is exactly what happens when a page has already started sending
+        // output and then fails.
         $now = time();
+
         if (!isset($_SESSION['_created'])) {
             $_SESSION['_created'] = $now;
-        } elseif ($now - (int) $_SESSION['_created'] > 1800) {
+        } elseif ($now - (int) $_SESSION['_created'] > 1800 && !headers_sent()) {
             session_regenerate_id(true);
             $_SESSION['_created'] = $now;
+        }
+    }
+
+    /**
+     * Write the session and release its lock, without ending it.
+     *
+     * PHP holds an exclusive lock on the session file for the whole request, so
+     * a job that takes minutes — an update, a backup — freezes every other
+     * request from that same admin until it finishes. Long work should pause
+     * the session and resume it only when it needs to write again.
+     */
+    public static function pause(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        self::$started = false;
+    }
+
+    /** Re-open a paused session so it can be written to again. */
+    public static function resume(): void
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            self::$started = false;
+            self::start();
         }
     }
 

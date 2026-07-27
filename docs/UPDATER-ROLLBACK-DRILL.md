@@ -169,6 +169,51 @@ Only after both sections pass:
    continues server-side; check `Admin → Updates → History` rather than
    re-running it.
 
+## "Something went wrong" straight after an update
+
+Seen once on production: the update finished and applied correctly, the browser
+was redirected to `/admin/update`, and *that* page returned a 500. Signing in
+again a moment later showed everything working and the update in place.
+
+That is stale bytecode, not a failed update.
+
+PHP's opcache stores the compiled version of each file and only re-checks the
+file's timestamp every `opcache.revalidate_freq` seconds — **60 by default on
+aaPanel**. The updater replaces the files in place, so for up to a minute
+afterwards the site runs a *mixture* of the old and new release. A new view
+calling a method that opcache still has the old copy of is a fatal error.
+
+The updater now calls `opcache_reset()` immediately after copying, and again
+after a rollback (which also replaces files). If the host has disabled
+`opcache_reset()`, it falls back to invalidating each PHP file individually.
+Either way the outcome is recorded as an `opcache` step, so
+**Admin → Updates → History** shows what actually happened:
+
+| Step detail | Meaning |
+|---|---|
+| `reset` | The whole cache was cleared. Nothing further to do. |
+| `N file(s) invalidated` | `opcache_reset()` was blocked; files were cleared one by one. Fine. |
+| `opcache not enabled` | Nothing to clear. Fine. |
+| `could not be cleared — restart PHP-FPM…` | The host blocks both. **Restart PHP-FPM after each update**, or the site will serve mixed code for a minute. |
+
+If it happens anyway: wait a minute and reload, or restart PHP-FPM from aaPanel.
+Nothing is broken and nothing needs restoring.
+
+Two other things were fixed at the same time, both of which made this harder to
+diagnose than it should have been:
+
+- **The error page told the admin nothing.** A signed-in admin now sees the real
+  exception, file, line and stack trace on the 500 page instead of "We have
+  logged the problem". Ordinary visitors still get the friendly page. The check
+  reads `$_SESSION` directly and never touches the database, because the thing
+  that failed may *be* the database.
+- **The admin could be signed out.** `session_regenerate_id(true)` deletes the
+  old session at once, so if the new id could not be sent as a cookie — which is
+  the case once a page has begun sending output — the browser was left holding
+  an id that no longer existed. It now only rotates while the headers can still
+  be changed. The updater also releases the session lock while it works, so a
+  multi-minute update no longer freezes every other tab.
+
 ## What the updater deliberately does not do
 
 Rollback restores the files that were in the backup. It does **not** delete

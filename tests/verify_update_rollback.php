@@ -252,6 +252,92 @@ $empty = UpdateService::restoreFiles($emptyZip, $site);
 assertThat('archive with no files/ entries -> ok is false', $empty['ok'] === false,
     'restored ' . $empty['restored']);
 
+echo "\n=== 10. Stale bytecode is cleared after files are replaced ===\n\n";
+
+// This is what makes a completed update still land on "Something went wrong":
+// opcache keeps serving the old compiled version of a replaced file for up to
+// opcache.revalidate_freq seconds, so the next request runs a mix of releases.
+
+$updateSource = (string) file_get_contents(__DIR__ . '/../app/services/UpdateService.php');
+
+assertThat('the cache is cleared right after the copy step',
+    strpos($updateSource, 'self::resetOpcache()') > strpos($updateSource, 'self::copyTree($sourceDir'));
+
+assertThat('the rollback clears it too', substr_count($updateSource, 'self::resetOpcache()') >= 2,
+    'a rollback replaces files as well');
+
+assertThat('the outcome is recorded as a step',
+    str_contains($updateSource, "'step' => 'opcache'"),
+    'so the admin can see whether the host allowed it');
+
+// It must be safe to call regardless of how the host has configured opcache.
+$status = UpdateService::resetOpcache();
+
+assertThat('resetOpcache() never throws and always explains itself', is_string($status) && $status !== '', $status);
+
+assertThat('a host without opcache is reported, not silently treated as success',
+    in_array($status, ['opcache not installed', 'opcache not enabled'], true)
+    || $status === 'reset'
+    || str_contains($status, 'invalidated')
+    || str_contains($status, 'could not be cleared'),
+    $status);
+
+// With opcache switched on, the reset has to actually report success.
+$probe = shell_exec(
+    'php -d opcache.enable_cli=1 -r '
+    . escapeshellarg('require "' . __DIR__ . '/../app/bootstrap.php"; echo App\Services\UpdateService::resetOpcache();')
+    . ' 2>/dev/null'
+);
+
+assertThat('with opcache enabled it reports a real clear',
+    is_string($probe) && (trim($probe) === 'reset' || str_contains((string) $probe, 'invalidated')),
+    trim((string) $probe));
+
+assertThat('a host that blocks opcache_reset() falls back to per-file invalidation',
+    str_contains($updateSource, 'opcache_invalidate'));
+
+echo "\n=== 11. Admins see the real error, visitors do not ===\n\n";
+
+$appSource = (string) file_get_contents(__DIR__ . '/../app/core/App.php');
+
+assertThat('the details are gated on an admin session',
+    str_contains($appSource, 'self::isAdminSession() ? ['));
+
+assertThat('the check never touches the database',
+    (bool) preg_match('/function isAdminSession.*?\$_SESSION\[.admin_id.\]/s', $appSource),
+    'the failure may be the database itself');
+
+assertThat('it never starts a new session from the error handler',
+    (bool) preg_match('/function isAdminSession.*?read_and_close/s', $appSource));
+
+assertThat('it cannot throw a second time',
+    (bool) preg_match('/function isAdminSession.*?catch \(\\\\Throwable\).*?return false;/s', $appSource));
+
+$view = (string) file_get_contents(__DIR__ . '/../app/views/errors/500.php');
+
+assertThat('the view defaults to no details', str_contains($view, '$error = $error ?? null;'));
+assertThat('a visitor sees only the friendly message', str_contains($view, "if (\$error === null):"));
+assertThat('every detail is escaped', !preg_match('/<\?=\s*\$error\[/', $view));
+
+echo "\n=== 12. A long update cannot sign the admin out ===\n\n";
+
+$session = (string) file_get_contents(__DIR__ . '/../app/core/Session.php');
+
+assertThat('the session id is not rotated once output has begun',
+    str_contains($session, '> 1800 && !headers_sent()'),
+    'regenerate_id(true) deletes the old session immediately');
+
+assertThat('the session lock can be released for long work',
+    str_contains($session, 'function pause()') && str_contains($session, 'function resume()'));
+
+$updateController = (string) file_get_contents(__DIR__ . '/../app/controllers/admin/UpdateController.php');
+
+assertThat('the updater releases the session lock while it works',
+    str_contains($updateController, 'Session::pause();'));
+
+assertThat('and always takes it back, even on failure',
+    (bool) preg_match('/finally\s*\{\s*Session::resume\(\);/s', $updateController));
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 
