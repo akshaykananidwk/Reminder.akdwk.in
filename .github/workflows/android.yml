@@ -9,13 +9,19 @@ name: Android build
 # the workflow still produces a debug-signed APK so forks keep working):
 #   KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
 # Optional: GOOGLE_SERVICES_JSON (Firebase push), KR_BASE_URL (self-hosted server)
+#
+# The Gradle wrapper (gradlew + gradle/wrapper/gradle-wrapper.jar) is committed,
+# so the build never depends on generating one at run time.
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'android/**'
-      - '.github/workflows/android.yml'
+    # No `paths:` filter here on purpose. When a push trigger declares both
+    # branches and tags, a paths filter is evaluated against the commits in the
+    # push — and a tag pointing at an already-pushed commit carries none, so the
+    # release build would silently never start. Correctness beats a saved minute.
+    branches:
+      - main
+      - 'claude/**'
     tags:
       - 'v*'
   pull_request:
@@ -41,6 +47,12 @@ jobs:
       run:
         working-directory: android
 
+    # Secrets are not a valid context inside a step's `if:`, so they are lifted
+    # into the job environment and the steps test the env var instead.
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      HAS_FIREBASE: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,28 +66,29 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle (with cache)
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Generate Gradle wrapper if missing
+      - name: Verify the committed Gradle wrapper
         run: |
-          if [ ! -f gradlew ]; then
-            gradle wrapper --gradle-version 8.7 --no-daemon
-          fi
+          test -f gradlew || { echo "::error::gradlew is missing from the repository"; exit 1; }
+          test -f gradle/wrapper/gradle-wrapper.jar || {
+            echo "::error::gradle/wrapper/gradle-wrapper.jar is missing from the repository"; exit 1; }
+          chmod +x gradlew
+          ./gradlew --version
 
       - name: Write google-services.json
-        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
+        if: env.HAS_FIREBASE == 'true'
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
           echo "Firebase config written."
 
       - name: Decode signing keystore
         id: keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: env.HAS_KEYSTORE == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
@@ -105,6 +118,12 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KR_BASE_URL: ${{ secrets.KR_BASE_URL }}
         run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify the APK is installable
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BUILD_TOOLS/apksigner" verify --print-certs \
+            app/build/outputs/apk/release/app-release.apk
 
       - name: Rename artifacts
         run: |
@@ -176,5 +195,5 @@ jobs:
             echo "| Version | ${{ steps.version.outputs.name }} |"
             echo "| Build | ${GITHUB_RUN_NUMBER} |"
             echo "| Signed | ${{ steps.keystore.outputs.signed == 'true' && 'release keystore' || 'debug key (no KEYSTORE_BASE64 secret)' }} |"
-            echo "| Firebase | ${{ secrets.GOOGLE_SERVICES_JSON != '' && 'configured' || 'not configured (push disabled)' }} |"
+            echo "| Firebase | ${{ env.HAS_FIREBASE == 'true' && 'configured' || 'not configured (push disabled)' }} |"
           } >> "$GITHUB_STEP_SUMMARY"

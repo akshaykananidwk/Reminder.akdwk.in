@@ -8,6 +8,8 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Route
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -111,10 +113,8 @@ object ApiClient {
      * Authenticator, so it uses a bare client of its own.
      */
     private fun renewBlocking(baseUrl: String, refreshToken: String): TokensDto? = try {
-        val body = okhttp3.RequestBody.create(
-            okhttp3.MediaType.parse("application/json"),
-            "{\"refresh_token\":\"$refreshToken\"}"
-        )
+        val body = "{\"refresh_token\":\"$refreshToken\"}"
+            .toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder()
             .url(baseUrl + "api/v1/auth/refresh")

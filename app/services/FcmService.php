@@ -163,6 +163,44 @@ class FcmService
     }
 
     /**
+     * Build the signed RS256 JWT assertion Google exchanges for an access token.
+     *
+     * Kept public and side-effect free so it can be verified without touching
+     * the network — see tests/verify_fcm.php.
+     */
+    public static function buildAssertion(array $account, ?int $now = null): ?string
+    {
+        if (empty($account['client_email']) || empty($account['private_key'])) {
+            return null;
+        }
+
+        $now ??= time();
+
+        $header = ['alg' => 'RS256', 'typ' => 'JWT'];
+        $claims = [
+            'iss'   => $account['client_email'],
+            'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
+            'aud'   => self::TOKEN_ENDPOINT,
+            'iat'   => $now,
+            'exp'   => $now + 3600,
+        ];
+
+        $signingInput = self::base64Url((string) json_encode($header))
+            . '.' . self::base64Url((string) json_encode($claims));
+
+        $signature = '';
+
+        // RS256 with the service-account private key — no JWT library needed.
+        if (!openssl_sign($signingInput, $signature, (string) $account['private_key'], OPENSSL_ALGO_SHA256)) {
+            Logger::error('Failed to sign FCM JWT', ['openssl' => openssl_error_string()], 'push');
+
+            return null;
+        }
+
+        return $signingInput . '.' . self::base64Url($signature);
+    }
+
+    /**
      * Service-account JWT -> OAuth access token, cached for its lifetime.
      */
     private static function accessToken(array $account): ?string
@@ -174,27 +212,11 @@ class FcmService
             return $cached;
         }
 
-        $now = time();
+        $jwt = self::buildAssertion($account);
 
-        $header = ['alg' => 'RS256', 'typ' => 'JWT'];
-        $claims = [
-            'iss'   => $account['client_email'],
-            'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
-            'aud'   => self::TOKEN_ENDPOINT,
-            'iat'   => $now,
-            'exp'   => $now + 3600,
-        ];
-
-        $signingInput = self::base64Url(json_encode($header)) . '.' . self::base64Url(json_encode($claims));
-        $signature = '';
-
-        if (!openssl_sign($signingInput, $signature, (string) $account['private_key'], OPENSSL_ALGO_SHA256)) {
-            Logger::error('Failed to sign FCM JWT', [], 'push');
-
+        if ($jwt === null) {
             return null;
         }
-
-        $jwt = $signingInput . '.' . self::base64Url($signature);
 
         $response = HttpClient::request('POST', self::TOKEN_ENDPOINT, [
             'form' => [
@@ -219,6 +241,13 @@ class FcmService
 
     /* ---------------------------------------------------------------- Legacy */
 
+    /**
+     * DECOMMISSIONED by Google in June 2024.
+     *
+     * The endpoint now answers 404 for every request, so this exists only to
+     * produce an unmistakable error instead of a silent no-op. `isConfigured()`
+     * deliberately does not count a legacy key as a working configuration.
+     */
     private static function sendLegacy(string $token, array $data, array $options, string $serverKey): array
     {
         $payload = [
@@ -267,11 +296,81 @@ class FcmService
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
 
+    /**
+     * True only when push can actually be delivered.
+     *
+     * A legacy server key does NOT count: Google decommissioned that API in
+     * June 2024, so treating it as configured would mean the phone silently
+     * never rings — the exact failure this product cannot afford.
+     */
     public static function isConfigured(): bool
     {
-        $settings = App::i()->settings();
+        return self::status()['ok'];
+    }
 
-        return trim((string) $settings->get('fcm_service_account', '')) !== ''
-            || trim((string) $settings->get('fcm_server_key', '')) !== '';
+    /**
+     * Human-readable push configuration state, used by the admin panel, the
+     * health endpoint and the installer.
+     *
+     * @return array{ok: bool, level: string, message: string, hint: string}
+     */
+    public static function status(): array
+    {
+        $settings = App::i()->settings();
+        $raw = trim((string) $settings->get('fcm_service_account', ''));
+        $legacy = trim((string) $settings->get('fcm_server_key', ''));
+
+        if ($raw === '') {
+            return [
+                'ok'      => false,
+                'level'   => $legacy === '' ? 'error' : 'error',
+                'message' => $legacy === ''
+                    ? 'Push is not configured — phones will not ring.'
+                    : 'Only a legacy FCM server key is set, and Google shut that API down in June 2024.',
+                'hint'    => 'Paste the Firebase service-account JSON under Admin → Settings → Push. '
+                    . 'Google Cloud → IAM → Service Accounts → Keys → Add key (JSON).',
+            ];
+        }
+
+        $account = json_decode($raw, true);
+
+        if (!is_array($account)) {
+            return [
+                'ok'      => false,
+                'level'   => 'error',
+                'message' => 'The FCM service-account value is not valid JSON.',
+                'hint'    => 'Paste the whole downloaded file, including the outer { } braces.',
+            ];
+        }
+
+        foreach (['client_email', 'private_key', 'project_id'] as $field) {
+            if (empty($account[$field])) {
+                return [
+                    'ok'      => false,
+                    'level'   => 'error',
+                    'message' => 'The service-account JSON is missing "' . $field . '".',
+                    'hint'    => 'Download a fresh JSON key for the service account and paste it again.',
+                ];
+            }
+        }
+
+        // Prove the key actually signs before claiming push works.
+        if (self::buildAssertion($account) === null) {
+            return [
+                'ok'      => false,
+                'level'   => 'error',
+                'message' => 'The private key in the service-account JSON could not sign a token.',
+                'hint'    => 'The key is probably truncated — make sure the \\n escapes survived the copy/paste.',
+            ];
+        }
+
+        return [
+            'ok'      => true,
+            'level'   => $legacy === '' ? 'ok' : 'warning',
+            'message' => 'FCM HTTP v1 is configured for project ' . (string) $account['project_id'] . '.',
+            'hint'    => $legacy === ''
+                ? ''
+                : 'A legacy server key is also stored but is never used; you can clear it.',
+        ];
     }
 }

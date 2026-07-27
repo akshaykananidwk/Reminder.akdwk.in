@@ -32,7 +32,7 @@ data class ReminderEntity(
 
 @Entity(
     tableName = "occurrences",
-    indices = [Index("dueAt"), Index("reminderId"), Index("status")]
+    indices = [Index("dueAtMillis"), Index("reminderId"), Index("status")]
 )
 data class OccurrenceEntity(
     @PrimaryKey val id: Int,
