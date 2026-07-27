@@ -1,8 +1,18 @@
 # Verification Report — Krishna Reminder v1.0.0
 
 **Date:** 27 July 2026
-**Build environment:** PHP 8.4.19 CLI (Linux), no MySQL server, no network access to
-the WhatsApp gateway / Gemini / Firebase, no Android device or emulator.
+**Build environment:** PHP 8.4.19 CLI (Linux), Android SDK 34 + Gradle 8.7, no
+MySQL server, no network access to the WhatsApp gateway / Gemini / Firebase, no
+Android device or emulator.
+
+**Three things were specifically demanded to be proven rather than described,
+and all three were:**
+
+| Demand | Result |
+|---|---|
+| Which FCM API is used — the legacy one shut down in June 2024 would mean the phone never rings | **HTTP v1 + service-account RS256 JWT via `openssl_sign()`**, proven by 24 assertions incl. a real signature verification (§1.3). A latent bug was found and fixed: a legacy-only key used to report itself as working push |
+| The Gradle wrapper JAR is not committed — run Actions once and see whether an APK really reaches a Release | Wrapper committed; **five separate build failures found and fixed**; run #6 published **`v1.0.0-6`** with both APKs attached, and the published APK was downloaded back and verified (§2.1) |
+| Do not test the updater rollback on production — force a failure on staging first | Rollback proven **offline** on a throwaway tree with a deliberately forced failure, 35 assertions (§1.4). A second bug was found: a failed database restore used to report the rollback as successful. Staging drill written: **docs/UPDATER-ROLLBACK-DRILL.md** |
 
 ---
 
@@ -181,11 +191,54 @@ checks. Production is explicitly the last place the updater should be exercised.
 | Asserts ≥ 30 seeded message templates | The 20 template keys × 3 languages actually seeded |
 | Fails if any `.sql` / `.zip` / `.bak` sits in the web root | Requirement §18.16, enforced continuously |
 
-`.github/workflows/android.yml` builds debug + release APKs on JDK 17 and, on a
-tag, publishes a signed APK to GitHub Releases with notes from the commit log.
+### 2.1 The Android workflow has been run, and an APK reached a Release ✅
 
-> The Android workflow has not been executed yet — it runs on the first push to
-> `main` or on a tag. Until then, the APK build itself is ⏳ (§4.6).
+Not "should work" — executed. `.github/workflows/android.yml` **run #6**
+(`workflow_dispatch`, `make_release: true`, commit `7d5ca78`): every step
+succeeded, including **Publish GitHub Release**.
+
+Release **`v1.0.0-6`** → https://github.com/akshaykananidwk/Reminder.akdwk.in/releases/tag/v1.0.0-6
+
+| Asset | Size |
+|---|---|
+| `krishna-reminder-1.0.0-6.apk` | 2.8 MB (minified, resource-shrunk) |
+| `krishna-reminder-1.0.0-6-debug.apk` | 22.0 MB |
+
+The published APK was downloaded back and checked:
+
+```
+sha256          2eebf1cb36556d4158447ac3eafd95013a261532e6eeeb814230d085dd5c274d  (matches the release digest)
+apksigner       Verifies — APK Signature Scheme v2
+package         com.akdwk.krishnareminder  versionCode 106  versionName 1.0.0
+sdkVersion      24        targetSdkVersion 34
+permissions     POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED,
+                SCHEDULE_EXACT_ALARM, USE_FULL_SCREEN_INTENT
+```
+
+Signed with the debug key because no `KEYSTORE_BASE64` secret is set on the
+repository — the documented fallback. The release-keystore path was verified
+separately against a real PKCS12 keystore: `apksigner` reports the release
+certificate rather than `CN=Android Debug`. Add the four signing secrets and
+the same workflow produces a release-signed APK.
+
+**Getting here required fixing five real failures.** Runs #1 and #2 had already
+failed in this repository before any of this was checked:
+
+| # | Failure | Cause |
+|---|---|---|
+| 1 | Workflow never parsed | `secrets` is not a valid context in a step-level `if:` |
+| 2 | Gradle wrapper JAR absent | Now committed (`gradlew`, `gradlew.bat`, `gradle-wrapper.jar`) |
+| 3 | KSP failed | Room `@Index("dueAt")` — the column is `dueAtMillis` |
+| 4 | Kotlin compile failed | `okhttp3.MediaType.parse()` removed in OkHttp 4; unresolved `horizontalScroll` |
+| 5 | Release build failed in 7s | A skipped CI step exports its output as an **empty string**, not unset, so `?:` did not catch it and `file("")` threw |
+
+Failure 5 could not be reproduced locally by an ordinary build — an unset
+variable yields `null`, which the elvis operator handles. Only a run with the
+step actually skipped reaches it, which is the first thing a fork encounters.
+
+`.github/workflows/php-lint.yml` also now runs `tests/verify.php`,
+`tests/verify_fcm.php` and `tests/verify_update_rollback.php` on PHP 8.1 and
+8.3 — 101 assertions per version.
 
 ---
 
@@ -291,11 +344,11 @@ Each row is the exact procedure to run.
 | 4.12 | Google two-way | Connect Google, create both sides, edit in Google | Event appears; the Google edit flows back within 15 minutes |
 | 4.13 | Without Google | Use every feature with Google disconnected | Nothing blocked, no nagging |
 | 4.14 | Token metering + quota | Set a low plan quota, exceed it | `ai_logs` shows cost; parser falls back; user warned once; no crash, no runaway |
-| 4.15 | Update + forced rollback | Run an update; then point at a branch with a deliberately broken migration | Success path leaves `config.php` and `/uploads` untouched, migration applied; failure path rolls back files + DB and WhatsApps the owner |
+| 4.15 | Update + forced rollback — **on staging, never production** | Follow **docs/UPDATER-ROLLBACK-DRILL.md**. The file-level half is already proven offline (§1.4); this covers the database restore, maintenance mode and the admin alert | Success path leaves `config.php` and `/uploads` untouched, migration applied; failure path rolls back files **and** database, clears maintenance mode, and WhatsApps the owner |
 | 4.16 | Backup not downloadable | `curl -I https://…/backups/<file>.zip` and try the `../kr-backups` path | 403/404 in both cases (CI already blocks web-root archives) |
 | 4.17 | Security sweep | SQLi, XSS, CSRF, IDOR (user A opening user B's reminder id), OTP brute force, webhook without secret | All blocked; IDOR returns 404 because every query is scoped by `user_id` |
 | 4.18 | Login persists 30 days | Leave installed, change the device clock forward, reopen after an app update | Still logged in (refresh token silently renews) |
-| 4.19 | Signed APK on Releases | Push a `v*` tag with the four keystore secrets set | Release created with the APK attached; in-app "check for updates" finds it |
+| 4.19 | **Release-signed** APK on Releases | Publishing to a Release is already proven (§2.1, `v1.0.0-6`). What remains is signing it with *your* key: set `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` and re-run | `apksigner` reports your certificate instead of `CN=Android Debug`; in-app "check for updates" finds it |
 | 4.20 | Responsive + dark mode | 360 / 768 / 1440 px, both themes | No horizontal scroll at 360 px; contrast holds in dark mode |
 
 ---
@@ -343,6 +396,13 @@ find . -name '*.php' -not -path './android/*' -exec php -l {} \; | grep -v 'No s
 # 2. Engine tests (42 assertions)
 php tests/verify.php ; echo "exit=$?"
 
+# 2a. FCM is the supported HTTP v1 API, not the dead legacy one (24 assertions)
+php tests/verify_fcm.php ; echo "exit=$?"
+
+# 2b. Updater rollback, with a deliberately forced failure (35 assertions).
+#     Runs on a throwaway tree — safe to run anywhere, including production.
+php tests/verify_update_rollback.php ; echo "exit=$?"
+
 # 3. Schema + seed against a real MySQL
 mysql -u root -p -e 'CREATE DATABASE krishna_test'
 mysql -u root -p krishna_test < database/schema.sql
@@ -354,8 +414,18 @@ curl -s https://reminder.akdwk.in/api/health.php?full=1&token=<CRON_TOKEN> | jq
 
 ---
 
-**Summary:** 145 PHP files parse cleanly; 42 engine assertions pass, including 21
-Gujarati/Hindi/English sentences and 7 recurrence rules; CI independently proves
-the schema loads into MySQL and that no archive is exposed in the web root.
-Everything requiring the live gateway, a Gemini key, Firebase or a physical phone
-is listed in §4 with the exact steps to confirm it, and the genuine gaps are in §5.
+**Summary:** 145 PHP files parse cleanly. **101 assertions pass** — 42 engine
+(21 Gujarati/Hindi/English sentences, 7 recurrence rules), 24 FCM, 35 updater
+rollback. The Android app compiles and both APKs are published to a real GitHub
+Release, verified after download. CI independently proves the schema loads into
+MySQL and that no archive is exposed in the web root.
+
+Along the way this found **seven real defects that code review had missed**:
+three Kotlin/Room compile errors, two workflow errors, a legacy FCM key that
+reported itself as working push, and a rollback that reported success when the
+database restore had failed. Each is described where it was found.
+
+Everything requiring the live gateway, a Gemini key, Firebase or a physical
+phone is listed in §4 with the exact steps to confirm it, and the genuine gaps
+are in §5. The updater must be drilled on staging
+(**docs/UPDATER-ROLLBACK-DRILL.md**) before it is ever run on production.
