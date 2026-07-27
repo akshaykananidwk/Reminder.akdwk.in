@@ -1,10 +1,15 @@
 <?php
 
 /**
- * Inbound WhatsApp webhook.
+ * Inbound WhatsApp webhook — serves both providers on one URL.
  *
- * Point the gateway's outbound webhook at:
+ * bulk.akdwk.in gateway:
  *   https://reminder.akdwk.in/api/wa_webhook.php?secret=XXXXXXXX
+ *
+ * Meta WhatsApp Cloud API (Meta → WhatsApp → Configuration → Webhook):
+ *   Callback URL:  https://reminder.akdwk.in/api/wa_webhook.php
+ *   Verify token:  whatever is set in Admin → WhatsApp → Cloud API
+ *   Then subscribe to the `messages` field.
  *
  * Contract (Section 6.3):
  *   1. Verify the shared secret / HMAC signature, else 401.
@@ -21,6 +26,7 @@ use App\Core\Crypto;
 use App\Core\Logger;
 use App\Core\RateLimiter;
 use App\Core\Request;
+use App\Services\MetaCloudService;
 use App\Services\WhatsAppService;
 
 header('Content-Type: application/json; charset=utf-8');
@@ -34,6 +40,29 @@ if (!$app->isInstalled()) {
     exit;
 }
 
+/* ------------------------------------- 0. Meta subscription handshake ---- */
+
+// Meta GETs this URL once when the webhook is saved and expects hub.challenge
+// echoed back as plain text. Nothing else about this endpoint answers GET.
+if (Request::method() === 'GET' && (Request::get('hub_mode') !== null || isset($_GET['hub.mode']))) {
+    $challenge = MetaCloudService::verifySubscription($_GET);
+
+    if ($challenge === null) {
+        RateLimiter::attempt('webhook_bad_' . Request::ip(), 20, 300);
+        Logger::warn('Cloud API webhook verification failed', ['ip' => Request::ip()], 'whatsapp');
+
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Verification failed']);
+        exit;
+    }
+
+    Logger::info('Cloud API webhook verified', [], 'whatsapp');
+
+    header('Content-Type: text/plain; charset=utf-8');
+    echo $challenge;
+    exit;
+}
+
 /* ------------------------------------------------------------ 1. Auth ---- */
 
 $expected = (string) $app->config('security.webhook_secret', '');
@@ -41,9 +70,31 @@ $given = (string) (Request::get('secret', '') ?? '');
 $raw = Request::rawBody();
 $signature = Request::header('X-Signature') ?? Request::header('X-Hub-Signature-256');
 
+$payload = json_decode($raw, true);
+
+if (!is_array($payload) || $payload === []) {
+    $payload = $_POST;
+}
+
+$isCloud = is_array($payload) && MetaCloudService::isCloudPayload($payload);
 $authorised = false;
 
-if ($expected !== '') {
+if ($isCloud) {
+    // Meta signs the body with the *app secret*, not the verify token and not
+    // our own webhook secret, so it gets its own check.
+    $authorised = MetaCloudService::verifySignature($raw, is_string($signature) ? $signature : null);
+
+    if (!$authorised && trim((string) $app->settings()->get('wa_cloud_app_secret', '')) === '') {
+        // No app secret stored yet: accept, but say so loudly rather than
+        // pretending the endpoint is authenticated.
+        $authorised = true;
+        Logger::warn(
+            'Cloud API webhook accepted WITHOUT signature verification — set the app secret in Admin → WhatsApp',
+            ['ip' => Request::ip()],
+            'whatsapp'
+        );
+    }
+} elseif ($expected !== '') {
     if ($given !== '' && hash_equals($expected, $given)) {
         $authorised = true;
     } elseif (is_string($signature) && $signature !== '') {
@@ -55,7 +106,7 @@ if ($expected !== '') {
 
 if (!$authorised) {
     RateLimiter::attempt('webhook_bad_' . Request::ip(), 20, 300);
-    Logger::warn('Webhook rejected', ['ip' => Request::ip()], 'whatsapp');
+    Logger::warn('Webhook rejected', ['ip' => Request::ip(), 'cloud' => $isCloud], 'whatsapp');
 
     http_response_code(401);
     echo json_encode(['success' => false, 'message' => 'Unauthorised']);
@@ -65,11 +116,6 @@ if (!$authorised) {
 /* --------------------------------------------------- 2. Answer fast ------ */
 
 // Everything after this point is bookkeeping; the gateway gets its 200 first.
-$payload = json_decode($raw, true);
-
-if (!is_array($payload) || $payload === []) {
-    $payload = $_POST;
-}
 
 http_response_code(200);
 echo json_encode(['success' => true]);
@@ -91,11 +137,31 @@ ignore_user_abort(true);
 /* ------------------------------------------------- 3-6. Process ---------- */
 
 try {
-    $message = WhatsAppService::parseInbound(is_array($payload) ? $payload : []);
+    $payload = is_array($payload) ? $payload : [];
+
+    // Meta nests the message inside entry[].changes[].value.messages[], and
+    // sends delivery/read receipts to the same URL. Those carry no message and
+    // are not an error — they are simply nothing to do.
+    $message = $isCloud
+        ? MetaCloudService::parseInbound($payload)
+        : WhatsAppService::parseInbound($payload);
 
     if ($message === null) {
-        Logger::info('Webhook payload without a sender', ['payload' => mb_substr($raw, 0, 500)], 'whatsapp');
+        if (!$isCloud) {
+            Logger::info('Webhook payload without a sender', ['payload' => mb_substr($raw, 0, 500)], 'whatsapp');
+        }
+
         exit;
+    }
+
+    // Cloud API media arrives as an id; exchange it for a URL now, because that
+    // URL is short-lived and the id alone is useless to the rest of the app.
+    if ($isCloud && $message['media_url'] === null) {
+        $mediaId = $payload['entry'][0]['changes'][0]['value']['messages'][0][$message['type']]['id'] ?? null;
+
+        if (is_string($mediaId) && $mediaId !== '') {
+            $message['media_url'] = MetaCloudService::mediaUrl($mediaId);
+        }
     }
 
     $db = $app->db();

@@ -598,6 +598,7 @@ CREATE TABLE IF NOT EXISTS `wa_outbound_log` (
   `user_id` INT UNSIGNED NULL,
   `to_number` VARCHAR(20) NOT NULL,
   `message` TEXT NULL,
+  `provider` VARCHAR(32) NOT NULL DEFAULT 'bulk',
   `request_id` VARCHAR(64) NULL,
   `http_code` SMALLINT UNSIGNED NULL,
   `response` TEXT NULL,

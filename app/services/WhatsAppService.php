@@ -96,18 +96,107 @@ class WhatsAppService
     public static function sendNow(string $number, string $message, ?string $mediaUrl = null, ?int $userId = null, ?int $queueId = null): array
     {
         $settings = App::i()->settings();
+        $number = normalize_phone($number);
+
+        if (!$settings->bool('wa_enabled', true)) {
+            return ['ok' => false, 'status' => 0, 'response' => 'WhatsApp sending is disabled in admin settings', 'latency_ms' => 0, 'provider' => 'none'];
+        }
+
+        $order = self::providerOrder();
+
+        if ($order === []) {
+            return ['ok' => false, 'status' => 0, 'response' => 'No WhatsApp provider is configured', 'latency_ms' => 0, 'provider' => 'none'];
+        }
+
+        $last = null;
+
+        foreach ($order as $index => $provider) {
+            $result = $provider === 'cloud'
+                ? self::sendViaCloud($number, $message, $mediaUrl, $userId, $queueId)
+                : self::sendViaBulk($number, $message, $mediaUrl, $userId, $queueId);
+
+            if ($result['ok']) {
+                if ($index > 0) {
+                    Logger::info('Sent via the fallback provider', [
+                        'provider' => $provider,
+                        'number'   => $number,
+                    ], 'whatsapp');
+                }
+
+                return $result;
+            }
+
+            $last = $result;
+
+            // A message rejected on its merits (unknown number, no template,
+            // blocked recipient) will be rejected by the other provider too —
+            // retrying it just burns quota and delays the failure.
+            if (!empty($result['fatal'])) {
+                break;
+            }
+        }
+
+        return $last ?? ['ok' => false, 'status' => 0, 'response' => 'No provider attempted', 'latency_ms' => 0, 'provider' => 'none'];
+    }
+
+    /**
+     * Which providers to try, in order. The primary comes from `wa_provider`;
+     * the other is appended only when failover is on and it is actually
+     * configured, so a half-set-up second provider can never swallow a send.
+     *
+     * @return array<int, string>
+     */
+    public static function providerOrder(): array
+    {
+        $settings = App::i()->settings();
+
+        $primary = strtolower(trim((string) $settings->get('wa_provider', 'bulk')));
+        $primary = in_array($primary, ['bulk', 'cloud'], true) ? $primary : 'bulk';
+        $secondary = $primary === 'bulk' ? 'cloud' : 'bulk';
+
+        $order = [];
+
+        if (self::providerConfigured($primary)) {
+            $order[] = $primary;
+        }
+
+        if ($settings->bool('wa_failover', true) && self::providerConfigured($secondary)) {
+            $order[] = $secondary;
+        }
+
+        // If the chosen primary is not set up but the other one is, use it
+        // rather than failing — that is what the operator plainly wants.
+        if ($order === [] && self::providerConfigured($secondary)) {
+            $order[] = $secondary;
+        }
+
+        return $order;
+    }
+
+    public static function providerConfigured(string $provider): bool
+    {
+        if ($provider === 'cloud') {
+            return MetaCloudService::isConfigured();
+        }
+
+        $settings = App::i()->settings();
+
+        return rtrim((string) $settings->get('wa_endpoint', ''), '/') !== ''
+            && (string) $settings->get('wa_api_key', '') !== ''
+            && (string) $settings->get('wa_session_id', '') !== '';
+    }
+
+    /** The original bulk.akdwk.in gateway. */
+    private static function sendViaBulk(string $number, string $message, ?string $mediaUrl, ?int $userId, ?int $queueId): array
+    {
+        $settings = App::i()->settings();
 
         $endpoint = rtrim((string) $settings->get('wa_endpoint', ''), '/');
         $apiKey = (string) $settings->get('wa_api_key', '');
         $sessionId = (string) $settings->get('wa_session_id', '');
-        $number = normalize_phone($number);
 
         if ($endpoint === '' || $apiKey === '' || $sessionId === '') {
-            return ['ok' => false, 'status' => 0, 'response' => 'WhatsApp gateway is not configured', 'latency_ms' => 0];
-        }
-
-        if (!$settings->bool('wa_enabled', true)) {
-            return ['ok' => false, 'status' => 0, 'response' => 'WhatsApp sending is disabled in admin settings', 'latency_ms' => 0];
+            return ['ok' => false, 'status' => 0, 'response' => 'WhatsApp gateway is not configured', 'latency_ms' => 0, 'provider' => 'bulk'];
         }
 
         $payload = [
@@ -128,13 +217,47 @@ class WhatsAppService
 
         $ok = $result['ok'] && self::responseIndicatesSuccess($result);
 
-        self::log($queueId, $userId, $number, $message, $requestId, $result, $ok);
+        self::log($queueId, $userId, $number, $message, $requestId, $result, $ok, 'bulk');
 
         return [
             'ok'         => $ok,
             'status'     => $result['status'],
             'response'   => mb_substr($result['body'] !== '' ? $result['body'] : (string) $result['error'], 0, 2000),
             'latency_ms' => $result['latency_ms'],
+            'provider'   => 'bulk',
+        ];
+    }
+
+    /** Meta WhatsApp Cloud API. */
+    private static function sendViaCloud(string $number, string $message, ?string $mediaUrl, ?int $userId, ?int $queueId): array
+    {
+        $requestId = Crypto::randomToken(8);
+        $result = MetaCloudService::send($number, $message, $mediaUrl);
+
+        $ok = $result['ok'];
+        $detail = $ok
+            ? mb_substr($result['body'], 0, 2000)
+            : MetaCloudService::explain($result['status'], $result['json']);
+
+        self::log(
+            $queueId,
+            $userId,
+            $number,
+            $message,
+            $requestId,
+            ['status' => $result['status'], 'body' => $detail, 'error' => $result['error'], 'latency_ms' => $result['latency_ms']],
+            $ok,
+            'cloud:' . $result['mode']
+        );
+
+        return [
+            'ok'         => $ok,
+            'status'     => $result['status'],
+            'response'   => $detail,
+            'latency_ms' => $result['latency_ms'],
+            'provider'   => 'cloud',
+            // These will fail identically on the other gateway, so do not retry.
+            'fatal'      => in_array($result['code'], [MetaCloudService::ERROR_REENGAGEMENT, 131026, 131030], true),
         ];
     }
 
@@ -420,7 +543,7 @@ class WhatsAppService
         }
     }
 
-    private static function log(?int $queueId, ?int $userId, string $number, string $message, string $requestId, array $result, bool $ok): void
+    private static function log(?int $queueId, ?int $userId, string $number, string $message, string $requestId, array $result, bool $ok, string $provider = 'bulk'): void
     {
         try {
             App::i()->db()->insert('wa_outbound_log', [
@@ -428,6 +551,7 @@ class WhatsAppService
                 'user_id'    => $userId,
                 'to_number'  => $number,
                 'message'    => mb_substr($message, 0, 4000),
+                'provider'   => $provider,
                 'request_id' => $requestId,
                 'http_code'  => $result['status'],
                 'response'   => mb_substr($result['body'] !== '' ? $result['body'] : (string) $result['error'], 0, 2000),

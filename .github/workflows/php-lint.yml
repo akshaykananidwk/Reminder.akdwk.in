@@ -59,6 +59,7 @@ jobs:
           php tests/verify.php
           php tests/verify_fcm.php
           php tests/verify_update_rollback.php
+          php tests/verify_cloud_api.php
 
       - name: Check for stray archives in the web root
         run: |

@@ -154,6 +154,7 @@ $router->group('/admin', ['admin'], function ($r): void {
     $r->get('/whatsapp', ['Admin\ConfigController', 'whatsapp']);
     $r->post('/whatsapp', ['Admin\ConfigController', 'saveWhatsapp'], ['csrf']);
     $r->post('/whatsapp/test', ['Admin\ConfigController', 'testWhatsapp'], ['csrf']);
+    $r->post('/whatsapp/test-cloud', ['Admin\ConfigController', 'testCloud'], ['csrf']);
     $r->get('/ai', ['Admin\ConfigController', 'ai']);
     $r->post('/ai', ['Admin\ConfigController', 'saveAi'], ['csrf']);
     $r->post('/ai/test', ['Admin\ConfigController', 'testAi'], ['csrf']);

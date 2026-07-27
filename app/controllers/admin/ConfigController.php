@@ -9,6 +9,7 @@ use App\Core\Response;
 use App\Core\Session;
 use App\Services\AuditService;
 use App\Services\GeminiService;
+use App\Services\MetaCloudService;
 use App\Services\TemplateService;
 use App\Services\WhatsAppService;
 
@@ -82,6 +83,10 @@ class ConfigController extends Controller
             'pageTitle' => __('admin.whatsapp'),
             'settings'  => App::i()->settings(),
             'webhook'   => App::i()->url('/api/wa_webhook.php?secret=' . (string) App::i()->config('security.webhook_secret', '')),
+            // Meta appends its own query string, so its callback URL carries no secret.
+            'cloudHook' => App::i()->url('/api/wa_webhook.php'),
+            'cloud'     => MetaCloudService::status(),
+            'providers' => WhatsAppService::providerOrder(),
             'queue'     => $db->all('SELECT * FROM wa_outbound_queue ORDER BY id DESC LIMIT 25'),
             'log'       => $db->all('SELECT * FROM wa_outbound_log ORDER BY id DESC LIMIT 25'),
             'inbound'   => $db->all('SELECT * FROM wa_inbound_raw ORDER BY id DESC LIMIT 25'),
@@ -107,8 +112,40 @@ class ConfigController extends Controller
         $settings->set('wa_invite_unknown', Request::bool('wa_invite_unknown') ? '1' : '0', false, 'whatsapp');
         $settings->set('wa_invite_cooldown_days', (string) max(1, (int) Request::post('wa_invite_cooldown_days', 7)), false, 'whatsapp');
 
-        foreach (['wa_api_key', 'wa_session_id'] as $secret) {
-            $value = (string) Request::post($secret, '');
+        /* --- Meta WhatsApp Cloud API (second provider) --------------------- */
+
+        $provider = strtolower(trim((string) Request::post('wa_provider', 'bulk')));
+        $settings->set('wa_provider', in_array($provider, ['bulk', 'cloud'], true) ? $provider : 'bulk', false, 'whatsapp');
+        $settings->set('wa_failover', Request::bool('wa_failover') ? '1' : '0', false, 'whatsapp');
+
+        // Digits only — pasting the phone number instead of the ID is the most
+        // common setup mistake, and it fails with an unhelpful Graph error.
+        $phoneId = preg_replace('/\D+/', '', (string) Request::post('wa_cloud_phone_id', ''));
+        $settings->set('wa_cloud_phone_id', (string) $phoneId, false, 'whatsapp');
+        $settings->set('wa_cloud_business_id', (string) preg_replace('/\D+/', '', (string) Request::post('wa_cloud_business_id', '')), false, 'whatsapp');
+
+        $version = trim((string) Request::post('wa_cloud_api_version', 'v23.0'));
+        $settings->set('wa_cloud_api_version', preg_match('/^v\d+\.\d+$/', $version) === 1 ? $version : 'v23.0', false, 'whatsapp');
+
+        // Generated for the operator if they leave it blank, so the Meta form
+        // can always be completed in one pass.
+        $verify = trim((string) Request::post('wa_cloud_verify_token', ''));
+
+        if ($verify === '' && trim((string) $settings->get('wa_cloud_verify_token', '')) === '') {
+            $verify = MetaCloudService::suggestVerifyToken();
+        }
+
+        if ($verify !== '') {
+            $settings->set('wa_cloud_verify_token', $verify, false, 'whatsapp');
+        }
+
+        $settings->set('wa_cloud_template_name', trim((string) Request::post('wa_cloud_template_name', '')), false, 'whatsapp');
+        $settings->set('wa_cloud_template_lang', trim((string) Request::post('wa_cloud_template_lang', 'gu')) ?: 'gu', false, 'whatsapp');
+
+        // Secrets: a blank field means "leave the stored value alone", so the
+        // masked form never wipes a working credential.
+        foreach (['wa_api_key', 'wa_session_id', 'wa_cloud_token', 'wa_cloud_app_secret'] as $secret) {
+            $value = trim((string) Request::post($secret, ''));
 
             if ($value !== '') {
                 $settings->set($secret, $value, true, 'whatsapp');
@@ -138,9 +175,30 @@ class ConfigController extends Controller
             (string) Request::post('message', "🙏 Krishna Reminder test message — " . date('d M Y, h:i A'))
         );
 
+        $via = ($result['provider'] ?? 'bulk') === 'cloud' ? 'Meta Cloud API' : 'bulk.akdwk.in';
+
         Session::flash($result['ok'] ? 'success' : 'error', $result['ok']
-            ? 'Sent. Gateway said: ' . str_limit($result['response'], 200)
-            : 'Failed: ' . str_limit($result['response'], 300));
+            ? 'Sent via ' . $via . '. Gateway said: ' . str_limit($result['response'], 200)
+            : 'Failed via ' . $via . ': ' . str_limit($result['response'], 300));
+
+        Response::redirect(url('/admin/whatsapp'));
+    }
+
+    /**
+     * Check the Cloud API credentials without sending anything — it reads the
+     * phone number back, so testing costs no conversation and messages nobody.
+     */
+    public function testCloud(): void
+    {
+        $this->requireAdmin();
+
+        $result = MetaCloudService::testConnection();
+
+        if ($result['ok']) {
+            Session::flash('success', $result['message'] . ($result['hint'] !== '' ? ' ' . $result['hint'] : ''));
+        } else {
+            Session::flash('error', $result['message'] . ' ' . $result['hint']);
+        }
 
         Response::redirect(url('/admin/whatsapp'));
     }

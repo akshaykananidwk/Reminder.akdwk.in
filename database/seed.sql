@@ -62,6 +62,19 @@ INSERT IGNORE INTO `settings` (`setting_key`,`setting_value`,`setting_group`,`is
 ('wa_invite_unknown','1','whatsapp',0),
 ('wa_invite_cooldown_days','7','whatsapp',0),
 
+-- Second provider: Meta WhatsApp Cloud API. Both can be configured at once;
+-- wa_provider chooses which is tried first and wa_failover allows the other.
+('wa_provider','bulk','whatsapp',0),
+('wa_failover','1','whatsapp',0),
+('wa_cloud_token','','whatsapp',1),
+('wa_cloud_app_secret','','whatsapp',1),
+('wa_cloud_phone_id','','whatsapp',0),
+('wa_cloud_business_id','','whatsapp',0),
+('wa_cloud_api_version','v23.0','whatsapp',0),
+('wa_cloud_verify_token','','whatsapp',0),
+('wa_cloud_template_name','','whatsapp',0),
+('wa_cloud_template_lang','gu','whatsapp',0),
+
 ('gemini_api_key','','ai',1),
 ('gemini_api_key_2','','ai',1),
 ('gemini_model','gemini-2.0-flash','ai',0),
