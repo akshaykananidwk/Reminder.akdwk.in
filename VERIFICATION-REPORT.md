@@ -102,6 +102,71 @@ Flat `from`/`message`, `sender`/`body`, one-level nested `data`, `wa_id`/`conten
 and `remoteJid` all parse to the same sender; a payload with **no** sender is
 rejected (returns `null`) rather than guessed at.
 
+### 1.3 FCM push uses the supported API (24 / 24 PASS)
+
+`php tests/verify_fcm.php`
+
+Google shut the legacy `fcm.googleapis.com/fcm/send` server-key API down in
+June 2024. A product still calling it would look correct in code review and
+simply never ring a phone. This harness settles the question offline:
+
+| Checked | Result |
+|---|---|
+| `https://fcm.googleapis.com/v1/projects/{id}/messages:send` is the endpoint | PASS |
+| `sendV1()` is attempted before anything else | PASS |
+| RS256 assertion built and signed in pure PHP with `openssl_sign()` | PASS |
+| Header is `{"alg":"RS256","typ":"JWT"}`, base64url unpadded | PASS |
+| Claims are `iss` = service-account email, `scope` = `.../auth/firebase.messaging`, `aud` = `https://oauth2.googleapis.com/token`, `exp` = `iat + 3600` | PASS |
+| `openssl_verify()` returns 1 against the matching public key | PASS |
+| A tampered payload fails verification | PASS |
+| Missing `private_key`, missing `client_email`, or a garbage key each yield no assertion | PASS |
+| Server sends a data-only message with `android.priority = high` | PASS |
+| App declares `MESSAGING_EVENT` + `USE_FULL_SCREEN_INTENT` and handles `type=call` | PASS |
+
+The test generates a throwaway 2048-bit RSA keypair, so it proves the signature
+really verifies rather than that the code merely calls the right function.
+
+**A real bug was fixed here.** `isConfigured()` previously returned `true` when
+only a legacy server key was stored, so the dispatcher would send to a dead
+endpoint and phones would silently never ring. Push now counts as configured
+only when a service-account JSON is present, complete, and actually signs.
+`sendLegacy()` remains solely to raise an unmistakable error.
+
+### 1.4 Updater rollback (35 / 35 PASS)
+
+`php tests/verify_update_rollback.php`
+
+Runs entirely on a throwaway tree in the system temp folder — no live site, no
+GitHub, no database. It builds a fake install (application files plus
+`config/config.php`, `.env`, `uploads/`, `storage/`, `backups/`, `.git/`), takes
+a backup in the real archive format, then **deliberately breaks the update**:
+the release ships `app/legacy` as a directory where the installed site has a
+file, so `mkdir()` cannot succeed and the copy aborts with the tree
+half-replaced.
+
+| Checked | Result |
+|---|---|
+| The failure is raised, not swallowed | PASS — `Could not create directory: app/legacy` |
+| The tree really is part-updated (v2 core, v1 front controller) | PASS |
+| Protected paths untouched by the failed update | PASS — 7 / 7 |
+| Rollback restores every application file | PASS — 5 restored, 0 failed |
+| Rollback does **not** overwrite config, `.env`, uploads, storage, backups, `.git` | PASS — 7 skipped |
+| `.updateignore` entries honoured, comments not treated as paths | PASS |
+| A tampered archive containing `files/../OWNED.txt` cannot escape the root | PASS |
+| A missing backup, or one with no `files/` entries, fails loudly | PASS |
+
+**A real bug was fixed here too.** `rollback()` returned `$restored > 0` and
+ignored the database restore entirely, so a run where the files came back but
+the schema did not reported "✅ Automatic rollback completed" over WhatsApp.
+It now returns false and logs which half failed. Separately, `installed_commit`
+and `maintenance_mode` were written *before* the health check, which recorded a
+broken release as installed and reopened the site before it was known good.
+
+This does not cover the database restore, maintenance mode or the admin alert —
+those need a server. **docs/UPDATER-ROLLBACK-DRILL.md** is the staging
+procedure for them, with four ways to force a failure and the exact before/after
+checks. Production is explicitly the last place the updater should be exercised.
+
 ---
 
 ## 2. Verified by CI 🟢

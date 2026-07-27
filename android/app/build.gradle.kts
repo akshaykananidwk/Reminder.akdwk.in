@@ -53,15 +53,21 @@ android {
         buildConfigField("String", "GITHUB_REPO", "\"akshaykananidwk/reminder.akdwk.in\"")
     }
 
+    // A skipped CI step still exports its outputs as an EMPTY STRING, not as an
+    // unset variable, so `?:` alone is not enough — file("") throws. Anything
+    // blank has to be treated as absent.
+    fun setting(env: String, property: String): String? =
+        (System.getenv(env) ?: keystoreProperties.getProperty(property))?.takeIf { it.isNotBlank() }
+
     signingConfigs {
         create("release") {
-            val storeFilePath = System.getenv("KEYSTORE_FILE") ?: keystoreProperties.getProperty("storeFile")
+            val storeFilePath = setting("KEYSTORE_FILE", "storeFile")
 
             if (storeFilePath != null && file(storeFilePath).exists()) {
                 storeFile = file(storeFilePath)
-                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: keystoreProperties.getProperty("storePassword")
-                keyAlias = System.getenv("KEY_ALIAS") ?: keystoreProperties.getProperty("keyAlias")
-                keyPassword = System.getenv("KEY_PASSWORD") ?: keystoreProperties.getProperty("keyPassword")
+                storePassword = setting("KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = setting("KEY_ALIAS", "keyAlias")
+                keyPassword = setting("KEY_PASSWORD", "keyPassword")
             }
         }
     }
