@@ -169,6 +169,32 @@ Only after both sections pass:
    continues server-side; check `Admin → Updates → History` rather than
    re-running it.
 
+## If the site is broken right now: `cron/repair.php`
+
+A self-updating application must have a way back that does not go through
+itself. When an update leaves the site throwing 500s, the admin panel is
+exactly what you cannot use to fix it.
+
+```bash
+php /www/wwwroot/reminder.akdwk.in/cron/repair.php
+```
+
+It applies any migrations that have not run yet — **one at a time, naming each
+one** — clears the bytecode cache, clears the application cache, checks that
+every column the current code needs actually exists, and switches off a
+maintenance mode that was left on. It deletes nothing and is safe to run twice.
+
+If it stops on a migration, that migration is the problem. Its error is printed
+in full, and it matters more than it looks: a migration is only recorded in
+`schema_migrations` **after** it succeeds, so one that fails is retried on the
+next update, fails again, and rolls that whole update back. The site then stays
+stuck on the old release no matter how many times you press Update — which
+looks exactly like "the update does nothing".
+
+Afterwards, restart PHP-FPM from aaPanel (Website → PHP → Service). The repair
+script runs on the command line, and the web server has its own separate
+bytecode cache that a CLI run cannot reach.
+
 ## "Something went wrong" straight after an update
 
 Seen once on production: the update finished and applied correctly, the browser

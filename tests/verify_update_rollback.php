@@ -338,6 +338,97 @@ assertThat('the updater releases the session lock while it works',
 assertThat('and always takes it back, even on failure',
     (bool) preg_match('/finally\s*\{\s*Session::resume\(\);/s', $updateController));
 
+echo "\n=== 13. A migration cannot poison the connection ===\n\n";
+
+// PDO::exec() is only safe for statements that return nothing. A migration
+// that ends up running a SELECT — `EXECUTE stmt` where the prepared text was a
+// no-op — leaves an unconsumed result set, and MySQL then rejects everything
+// after it with error 2014. That is not a one-off failure: UpdateService only
+// records a migration once it succeeds, so it is retried on every future
+// update, fails again, and rolls the whole update back. The update can never
+// stick, which is exactly what a stuck site looks like from the outside.
+
+$runStatement = new ReflectionMethod(\App\Services\BackupService::class, 'runStatement');
+$runStatement->setAccessible(true);
+
+$pdo = new PDO('sqlite::memory:');
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$pdo->exec('CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)');
+$pdo->exec("INSERT INTO t (v) VALUES ('a'), ('b')");
+
+$poisoned = null;
+
+try {
+    $runStatement->invoke(null, $pdo, 'SELECT * FROM t');
+    $runStatement->invoke(null, $pdo, "INSERT INTO t (v) VALUES ('c')");
+    $poisoned = false;
+} catch (\Throwable $e) {
+    $poisoned = $e->getMessage();
+}
+
+assertThat('a write still works after a statement that returned rows',
+    $poisoned === false, is_string($poisoned) ? $poisoned : '');
+
+assertThat('the write actually landed',
+    (int) $pdo->query('SELECT COUNT(*) FROM t')->fetchColumn() === 3);
+
+$backupSource = (string) file_get_contents(__DIR__ . '/../app/services/BackupService.php');
+
+assertThat('result sets are drained rather than left open',
+    str_contains($backupSource, 'closeCursor()'));
+
+assertThat('nextRowset() is guarded',
+    (bool) preg_match('/try \{\s*\$more = \$result->nextRowset\(\);\s*\} catch \(\\\\PDOException\)/s', $backupSource),
+    'it throws outright on drivers that do not implement it');
+
+assertThat('migrations no longer use a result-returning no-op',
+    !preg_match("/'SELECT 1'/", implode("\n", array_map(
+        static fn (string $f): string => (string) file_get_contents($f),
+        glob(__DIR__ . '/../database/migrations/*.sql') ?: []
+    ))),
+    "DO 0 returns no rows; SELECT 1 does");
+
+// Every migration must survive the splitter that will actually run it.
+foreach (glob(__DIR__ . '/../database/migrations/*.sql') ?: [] as $migration) {
+    $sql = (string) file_get_contents($migration);
+
+    assertThat(
+        'balanced quotes in ' . basename($migration),
+        substr_count($sql, "'") % 2 === 0,
+        'an odd count would swallow the next statement'
+    );
+}
+
+echo "\n=== 14. There is a way back that does not use the updater ===\n\n";
+
+$repair = __DIR__ . '/../cron/repair.php';
+
+assertThat('cron/repair.php exists', is_file($repair));
+
+$repairSource = (string) file_get_contents($repair);
+
+assertThat('it runs pending migrations one by one',
+    str_contains($repairSource, 'schema_migrations') && str_contains($repairSource, 'runSqlScript'));
+
+assertThat('it names the migration that failed instead of stopping silently',
+    str_contains($repairSource, '❌ $name'));
+
+assertThat('it clears the bytecode cache', str_contains($repairSource, 'resetOpcache'));
+
+assertThat('it is honest that the CLI cache is not the web cache',
+    str_contains($repairSource, 'restart PHP-FPM'));
+
+assertThat('it checks the columns the current code needs',
+    str_contains($repairSource, 'app_pin_hash') && str_contains($repairSource, 'telegram_chat_id'));
+
+assertThat('it clears a stuck maintenance mode', str_contains($repairSource, "maintenance_mode"));
+
+assertThat('it refuses to run over the web', str_contains($repairSource, "PHP_SAPI !== 'cli'"));
+
+assertThat('it deletes nothing',
+    !preg_match('/\b(DROP|TRUNCATE|DELETE FROM)\b/i', $repairSource),
+    'a recovery tool must never destroy data');
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

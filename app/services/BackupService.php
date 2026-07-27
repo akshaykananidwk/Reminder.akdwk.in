@@ -180,6 +180,47 @@ class BackupService
     }
 
     /**
+     * Run one statement and leave the connection clean.
+     *
+     * PDO::exec() is only safe for statements that return nothing. A migration
+     * that ends up running `SELECT`— for example `EXECUTE stmt` where the
+     * prepared text was a no-op SELECT — leaves an unconsumed result set, and
+     * every statement after it dies with:
+     *
+     *   SQLSTATE[HY000]: General error: 2014 Cannot execute queries while
+     *   other unbuffered queries are active
+     *
+     * That failure is unusually nasty here: UpdateService only records a
+     * migration in schema_migrations *after* it succeeds, so a migration that
+     * throws is retried on every future update, fails again, and rolls the
+     * whole update back each time. The update can then never stick.
+     */
+    private static function runStatement(\PDO $pdo, string $statement): void
+    {
+        $result = $pdo->query($statement);
+
+        if (!$result instanceof \PDOStatement) {
+            return;
+        }
+
+        // Drain every rowset, not just the first — a stored routine or a
+        // multi-result statement can return several.
+        //
+        // nextRowset() throws outright on drivers that do not implement it, so
+        // it is guarded: letting that escape would reintroduce the very failure
+        // this method exists to prevent.
+        do {
+            $result->closeCursor();
+
+            try {
+                $more = $result->nextRowset();
+            } catch (\PDOException) {
+                $more = false;
+            }
+        } while ($more);
+    }
+
+    /**
      * Execute a multi-statement SQL script, respecting quoted semicolons.
      */
     public static function runSqlScript(string $sql): int
@@ -213,7 +254,7 @@ class BackupService
                 $trimmed = trim($statement);
 
                 if ($trimmed !== '') {
-                    $pdo->exec($trimmed);
+                    self::runStatement($pdo, $trimmed);
                     $executed++;
                 }
 
@@ -227,7 +268,7 @@ class BackupService
         $trimmed = trim($statement);
 
         if ($trimmed !== '') {
-            $pdo->exec($trimmed);
+            self::runStatement($pdo, $trimmed);
             $executed++;
         }
 

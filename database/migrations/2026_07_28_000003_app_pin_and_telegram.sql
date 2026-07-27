@@ -18,7 +18,7 @@ SET @sql := IF(
      ADD COLUMN `app_pin_attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `app_pin_set_at`,
      ADD COLUMN `app_pin_last_fail_at` DATETIME NULL AFTER `app_pin_attempts`,
      ADD COLUMN `app_pin_locked_until` DATETIME NULL AFTER `app_pin_last_fail_at`',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -31,7 +31,7 @@ SET @sql := IF(
      ADD COLUMN `telegram_chat_id` VARCHAR(32) NULL AFTER `google_id`,
      ADD COLUMN `telegram_username` VARCHAR(64) NULL AFTER `telegram_chat_id`,
      ADD COLUMN `telegram_linked_at` DATETIME NULL AFTER `telegram_username`',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -39,7 +39,7 @@ SET @sql := IF(
   (SELECT COUNT(*) FROM information_schema.statistics
     WHERE table_schema = DATABASE() AND table_name = 'users' AND index_name = 'idx_users_telegram') = 0,
   'ALTER TABLE `users` ADD KEY `idx_users_telegram` (`telegram_chat_id`)',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -64,7 +64,7 @@ SET @sql := IF(
   (SELECT COUNT(*) FROM information_schema.columns
     WHERE table_schema = DATABASE() AND table_name = 'wa_outbound_queue' AND column_name = 'channel') = 0,
   'ALTER TABLE `wa_outbound_queue` ADD COLUMN `channel` VARCHAR(16) NOT NULL DEFAULT ''whatsapp'' AFTER `to_number`',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -72,7 +72,7 @@ SET @sql := IF(
   (SELECT COUNT(*) FROM information_schema.columns
     WHERE table_schema = DATABASE() AND table_name = 'wa_outbound_log' AND column_name = 'channel') = 0,
   'ALTER TABLE `wa_outbound_log` ADD COLUMN `channel` VARCHAR(16) NOT NULL DEFAULT ''whatsapp'' AFTER `to_number`',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
@@ -107,6 +107,6 @@ SET @sql := IF(
     WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'language'
       AND column_default = 'gu') = 1,
   'ALTER TABLE `users` MODIFY COLUMN `language` ENUM(''gu'',''hi'',''en'') NOT NULL DEFAULT ''en''',
-  'SELECT 1'
+  'DO 0'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

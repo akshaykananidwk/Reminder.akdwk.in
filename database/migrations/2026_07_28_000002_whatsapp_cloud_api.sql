@@ -18,7 +18,7 @@ SET @column_exists := (
 SET @sql := IF(
   @column_exists = 0,
   'ALTER TABLE `wa_outbound_log` ADD COLUMN `provider` VARCHAR(32) NOT NULL DEFAULT ''bulk'' AFTER `message`',
-  'SELECT 1'
+  'DO 0'
 );
 
 PREPARE stmt FROM @sql;
