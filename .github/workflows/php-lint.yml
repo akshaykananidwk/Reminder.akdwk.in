@@ -53,6 +53,13 @@ jobs:
 
           echo "All PHP files parse cleanly."
 
+      - name: Run the offline verification harnesses
+        run: |
+          # None of these need a database, a network or a configured install.
+          php tests/verify.php
+          php tests/verify_fcm.php
+          php tests/verify_update_rollback.php
+
       - name: Check for stray archives in the web root
         run: |
           # Backups or dumps reachable over HTTP is how a domain gets flagged.

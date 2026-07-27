@@ -229,9 +229,10 @@ class UpdateService
             TemplateService::flush();
             $settings->refresh();
             $settings->set('asset_version', (string) time());
-            $settings->set('installed_commit', (string) ($check['commit']['sha'] ?? ''));
-            $settings->set('maintenance_mode', '0');
 
+            // Health first. Recording the new commit or reopening the site
+            // before the application is known good would leave a broken
+            // release marked as installed.
             $health = self::healthCheck();
 
             if (!$health['ok']) {
@@ -239,6 +240,9 @@ class UpdateService
             }
 
             $steps[] = ['step' => 'health', 'status' => 'ok', 'detail' => 'Application responding'];
+
+            $settings->set('installed_commit', (string) ($check['commit']['sha'] ?? ''));
+            $settings->set('maintenance_mode', '0');
 
             $db->update('update_history', [
                 'status'         => 'success',
@@ -359,7 +363,8 @@ class UpdateService
 
     /* ------------------------------------------------------------- Helpers */
 
-    private static function ignoreList(string $sourceDir): array
+    /** The protected list plus anything the release's .updateignore adds. */
+    public static function ignoreList(string $sourceDir): array
     {
         $ignore = self::PROTECTED;
         $file = $sourceDir . '/.updateignore';
@@ -377,7 +382,12 @@ class UpdateService
         return array_values(array_unique($ignore));
     }
 
-    private static function copyTree(string $from, string $to, array $ignore, string $relative = ''): int
+    /**
+     * Copy the extracted release over the live tree, skipping everything in
+     * $ignore. Public so tests/verify_update_rollback.php can prove that a
+     * failure part-way through never touches a protected path.
+     */
+    public static function copyTree(string $from, string $to, array $ignore, string $relative = ''): int
     {
         $items = @scandir($from);
 
@@ -421,62 +431,153 @@ class UpdateService
         return $count;
     }
 
+    /**
+     * Put the application files back the way the backup found them.
+     *
+     * Kept separate from rollback() — and free of App/database access — so the
+     * rollback can be exercised against a throwaway tree without a live site.
+     * See tests/verify_update_rollback.php.
+     *
+     * @return array{ok: bool, restored: int, skipped: int, failed: int, error: string|null}
+     */
+    public static function restoreFiles(string $backupPath, string $root): array
+    {
+        $result = ['ok' => false, 'restored' => 0, 'skipped' => 0, 'failed' => 0, 'error' => null];
+
+        if (!class_exists('ZipArchive')) {
+            $result['error'] = 'The zip extension is not available.';
+
+            return $result;
+        }
+
+        $zip = new \ZipArchive();
+
+        if ($zip->open($backupPath) !== true) {
+            $result['error'] = 'The backup archive could not be opened.';
+
+            return $result;
+        }
+
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = (string) $zip->getNameIndex($i);
+
+            if (!str_starts_with($name, 'files/')) {
+                continue;
+            }
+
+            $relative = substr($name, 6);
+
+            if ($relative === '' || str_ends_with($relative, '/')) {
+                continue;
+            }
+
+            // A backup can contain a protected path (the archive is taken
+            // before the update); restoring it would undo live configuration
+            // and user uploads, so it is deliberately skipped here too.
+            foreach (self::PROTECTED as $protected) {
+                if ($relative === $protected || str_starts_with($relative, $protected . '/')) {
+                    $result['skipped']++;
+                    continue 2;
+                }
+            }
+
+            // Reject any path that escapes the site root — a tampered archive
+            // must not be able to write outside it.
+            $target = self::safeTarget($root, $relative);
+
+            if ($target === null) {
+                $result['skipped']++;
+                continue;
+            }
+
+            $dir = dirname($target);
+
+            if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+                $result['failed']++;
+                continue;
+            }
+
+            $contents = $zip->getFromIndex($i);
+
+            if ($contents === false || @file_put_contents($target, $contents) === false) {
+                $result['failed']++;
+                continue;
+            }
+
+            $result['restored']++;
+        }
+
+        $zip->close();
+
+        // A partial restore is a failed restore: it leaves the tree mixed
+        // between two releases, which is worse than either one.
+        $result['ok'] = $result['failed'] === 0 && $result['restored'] > 0;
+
+        return $result;
+    }
+
+    /**
+     * Resolve $relative under $root, refusing anything that escapes it.
+     * Returns null when the entry is unsafe.
+     */
+    private static function safeTarget(string $root, string $relative): ?string
+    {
+        if (str_contains($relative, "\0") || preg_match('#^([a-zA-Z]:)?[\\\\/]#', $relative) === 1) {
+            return null;
+        }
+
+        $parts = [];
+
+        foreach (preg_split('#[\\\\/]+#', $relative) ?: [] as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+
+            if ($segment === '..') {
+                if ($parts === []) {
+                    return null;
+                }
+
+                array_pop($parts);
+                continue;
+            }
+
+            $parts[] = $segment;
+        }
+
+        return $parts === [] ? null : rtrim($root, '/') . '/' . implode('/', $parts);
+    }
+
     private static function rollback(string $backupPath): bool
     {
         try {
-            if (!class_exists('ZipArchive')) {
+            $files = self::restoreFiles($backupPath, App::i()->root());
+
+            if (!$files['ok']) {
+                Logger::error('Rollback did not restore the files', $files, 'update');
+
                 return false;
             }
-
-            $zip = new \ZipArchive();
-
-            if ($zip->open($backupPath) !== true) {
-                return false;
-            }
-
-            $root = App::i()->root();
-            $restored = 0;
-
-            for ($i = 0; $i < $zip->numFiles; $i++) {
-                $name = (string) $zip->getNameIndex($i);
-
-                if (!str_starts_with($name, 'files/')) {
-                    continue;
-                }
-
-                $relative = substr($name, 6);
-
-                if ($relative === '' || str_ends_with($relative, '/')) {
-                    continue;
-                }
-
-                foreach (self::PROTECTED as $protected) {
-                    if ($relative === $protected || str_starts_with($relative, $protected . '/')) {
-                        continue 2;
-                    }
-                }
-
-                $target = $root . '/' . $relative;
-                $dir = dirname($target);
-
-                if (!is_dir($dir)) {
-                    @mkdir($dir, 0775, true);
-                }
-
-                $contents = $zip->getFromIndex($i);
-
-                if ($contents !== false && @file_put_contents($target, $contents) !== false) {
-                    $restored++;
-                }
-            }
-
-            $zip->close();
 
             $dbRestore = BackupService::restoreDatabase($backupPath);
 
-            Logger::info('Rollback completed', ['files' => $restored, 'db' => $dbRestore['ok']], 'update');
+            // Files back but schema forward is not a rollback — say so, rather
+            // than reporting success and leaving the admin to discover it.
+            if (!$dbRestore['ok']) {
+                Logger::error('Rollback restored files but not the database', [
+                    'files' => $files['restored'],
+                    'error' => $dbRestore['error'] ?? '',
+                ], 'update');
 
-            return $restored > 0;
+                return false;
+            }
+
+            Logger::info('Rollback completed', [
+                'files'   => $files['restored'],
+                'skipped' => $files['skipped'],
+            ], 'update');
+
+            return true;
         } catch (\Throwable $e) {
             Logger::error('Rollback failed', ['error' => $e->getMessage()], 'update');
 
