@@ -45,7 +45,7 @@ INSERT IGNORE INTO `settings` (`setting_key`,`setting_value`,`setting_group`,`is
 ('company_email','support@akdwk.in','general',0),
 ('company_gstin','','general',0),
 ('support_whatsapp','919978123146','general',0),
-('default_language','gu','general',0),
+('default_language','en','general',0),
 ('default_timezone','Asia/Kolkata','general',0),
 ('currency','INR','general',0),
 ('maintenance_mode','0','general',0),

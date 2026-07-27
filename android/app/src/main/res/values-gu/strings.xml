@@ -72,4 +72,13 @@
     <string name="natural_hint">સાદી ભાષામાં લખો: "કાલે 10 વાગ્યે બેંક જવાનું"</string>
     <string name="check_update">અપડેટ તપાસો</string>
     <string name="nothing_today">આજે કંઈ કામ નથી.</string>
+    <string name="login_with_pin">PIN</string>
+    <string name="login_with_otp">WhatsApp OTP</string>
+    <string name="phone_number">તમારો WhatsApp નંબર</string>
+    <string name="app_pin">૪ આંકડાનો PIN</string>
+    <string name="pin_hint">વેબસાઇટ પર Settings → App PIN માંથી PIN સેટ કરો.</string>
+    <string name="unlock">ખોલો</string>
+    <string name="server">સર્વર</string>
+    <string name="set_server">સર્વરનું સરનામું નાખો</string>
+    <string name="server_url">સર્વર URL</string>
 </resources>

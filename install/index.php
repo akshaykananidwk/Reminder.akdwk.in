@@ -205,7 +205,7 @@ switch ($step) {
             $siteName = trim((string) ($_POST['site_name'] ?? 'Krishna Reminder'));
             $siteUrl = rtrim(trim((string) ($_POST['site_url'] ?? '')), '/');
             $timezone = (string) ($_POST['timezone'] ?? 'Asia/Kolkata');
-            $language = (string) ($_POST['language'] ?? 'gu');
+            $language = (string) ($_POST['language'] ?? 'en');
             $currency = strtoupper(substr((string) ($_POST['currency'] ?? 'INR'), 0, 3));
 
             if ($siteName === '' || $siteUrl === '') {
@@ -521,9 +521,9 @@ ob_start();
                     </label>
                     <label>Default language
                         <select name="language">
-                            <option value="gu" selected>ગુજરાતી (Gujarati)</option>
+                            <option value="en" selected>English</option>
+                            <option value="gu">ગુજરાતી (Gujarati)</option>
                             <option value="hi">हिन्दी (Hindi)</option>
-                            <option value="en">English</option>
                         </select>
                     </label>
                     <label>Currency<input name="currency" value="INR" maxlength="3"></label>

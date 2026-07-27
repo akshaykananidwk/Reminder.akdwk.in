@@ -97,6 +97,8 @@ $router->group('/client', ['auth'], function ($r): void {
     $r->post('/settings', ['Client\SettingsController', 'save'], ['csrf']);
     $r->post('/settings/profile', ['Client\SettingsController', 'saveProfile'], ['csrf']);
     $r->post('/settings/password', ['Client\SettingsController', 'changePassword'], ['csrf']);
+    $r->post('/settings/app-pin', ['Client\SettingsController', 'saveAppPin'], ['csrf']);
+    $r->post('/settings/app-pin/remove', ['Client\SettingsController', 'removeAppPin'], ['csrf']);
     $r->post('/settings/numbers', ['Client\SettingsController', 'addNumber'], ['csrf']);
     $r->post('/settings/numbers/{id}/delete', ['Client\SettingsController', 'removeNumber'], ['csrf']);
     $r->get('/devices', ['Client\SettingsController', 'devices']);

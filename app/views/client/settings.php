@@ -138,6 +138,46 @@
         <?php endif; ?>
     </div>
 
+    <div class="card">
+        <h3><?= t('pin.title') ?></h3>
+        <p class="text-sm text-muted"><?= t('pin.intro') ?></p>
+
+        <p>
+            <span class="badge badge-<?= !empty($hasAppPin) ? 'success' : 'muted' ?>">
+                <?= !empty($hasAppPin) ? t('pin.is_set') : t('pin.not_set') ?>
+            </span>
+        </p>
+
+        <form method="post" action="<?= e(url('/client/settings/app-pin')) ?>">
+            <input type="hidden" name="csrf_token" value="<?= e($csrf) ?>">
+
+            <div class="grid grid-2">
+                <div class="field"><label for="s-pin"><?= t('pin.label') ?></label>
+                    <input id="s-pin" name="app_pin" type="password" inputmode="numeric" pattern="\d{4}"
+                           maxlength="4" minlength="4" required autocomplete="off"></div>
+                <div class="field"><label for="s-pin2"><?= t('pin.confirm') ?></label>
+                    <input id="s-pin2" name="app_pin_confirm" type="password" inputmode="numeric" pattern="\d{4}"
+                           maxlength="4" minlength="4" required autocomplete="off"></div>
+            </div>
+
+            <div class="field"><label for="s-pin-pw">Current <?= t('common.password') ?></label>
+                <input id="s-pin-pw" name="current_password" type="password" required autocomplete="current-password">
+                <span class="hint">Confirms it is really you changing the PIN.</span></div>
+
+            <button class="btn btn-block"><?= t('common.save') ?></button>
+        </form>
+
+        <?php if (!empty($hasAppPin)): ?>
+            <form method="post" action="<?= e(url('/client/settings/app-pin/remove')) ?>" class="mt-1"
+                  onsubmit="return confirm('<?= e(t('pin.remove')) ?>?')">
+                <input type="hidden" name="csrf_token" value="<?= e($csrf) ?>">
+                <button class="btn btn-outline btn-block"><?= t('pin.remove') ?></button>
+            </form>
+        <?php endif; ?>
+
+        <p class="hint mt-1"><?= t('pin.security_note') ?></p>
+    </div>
+
     <form class="card" method="post" action="<?= e(url('/client/settings/password')) ?>">
         <input type="hidden" name="csrf_token" value="<?= e($csrf) ?>">
         <h3><?= t('settings.security') ?></h3>

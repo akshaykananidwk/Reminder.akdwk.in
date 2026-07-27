@@ -66,7 +66,7 @@ class WhatsAppService
         int $priority = 5,
         ?string $number = null
     ): int {
-        $lang = (string) ($user['language'] ?? 'gu');
+        $lang = (string) ($user['language'] ?? 'en');
         $body = TemplateService::render($templateKey, $lang, $vars);
 
         if ($body === '') {
@@ -518,7 +518,7 @@ class WhatsAppService
             return;
         }
 
-        $lang = detect_language($body, (string) $settings->get('default_language', 'gu'));
+        $lang = detect_language($body, (string) $settings->get('default_language', 'en'));
         $message = TemplateService::render('unknown_number_invite', $lang, ['url' => App::i()->url('/register')]);
 
         if ($message !== '') {

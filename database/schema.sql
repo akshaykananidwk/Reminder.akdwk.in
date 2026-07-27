@@ -89,7 +89,14 @@ CREATE TABLE IF NOT EXISTS `users` (
   `email` VARCHAR(190) NULL,
   `phone` VARCHAR(20) NOT NULL COMMENT 'primary WhatsApp number, digits with country code',
   `password_hash` VARCHAR(255) NULL,
-  `language` ENUM('gu','hi','en') NOT NULL DEFAULT 'gu',
+  -- Four-digit app PIN: set on the website, used to sign into the Android app
+  -- without an OTP. Bcrypt, throttled and locked out by AppPinService.
+  `app_pin_hash` VARCHAR(255) NULL,
+  `app_pin_set_at` DATETIME NULL,
+  `app_pin_attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `app_pin_last_fail_at` DATETIME NULL,
+  `app_pin_locked_until` DATETIME NULL,
+  `language` ENUM('gu','hi','en') NOT NULL DEFAULT 'en',
   `timezone` VARCHAR(60) NOT NULL DEFAULT 'Asia/Kolkata',
   `city` VARCHAR(120) NULL,
   `avatar` VARCHAR(255) NULL,

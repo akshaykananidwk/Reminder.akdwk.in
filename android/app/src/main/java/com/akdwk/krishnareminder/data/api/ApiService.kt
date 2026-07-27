@@ -21,6 +21,13 @@ interface ApiService {
     @POST("api/v1/auth/verify-otp")
     suspend fun verifyOtp(@Body body: Map<String, String>): Response<ApiEnvelope<LoginResponse>>
 
+    /**
+     * Sign in with the 4-digit PIN set on the website. Needs no OTP, so it
+     * still works when the WhatsApp gateway is down.
+     */
+    @POST("api/v1/auth/pin")
+    suspend fun pinLogin(@Body body: Map<String, String>): Response<ApiEnvelope<LoginResponse>>
+
     @POST("api/v1/auth/refresh")
     suspend fun refresh(@Body body: Map<String, String>): Response<ApiEnvelope<RefreshResponse>>
 

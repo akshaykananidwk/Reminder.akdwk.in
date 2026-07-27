@@ -73,4 +73,13 @@
     <string name="natural_hint">Type naturally: "tomorrow at 10 am, call the bank"</string>
     <string name="check_update">Check for updates</string>
     <string name="nothing_today">Nothing scheduled for today.</string>
+    <string name="login_with_pin">PIN</string>
+    <string name="login_with_otp">WhatsApp OTP</string>
+    <string name="phone_number">Your WhatsApp number</string>
+    <string name="app_pin">4-digit PIN</string>
+    <string name="pin_hint">Set your PIN on the website under Settings → App PIN.</string>
+    <string name="unlock">Unlock</string>
+    <string name="server">Server</string>
+    <string name="set_server">Set the server address</string>
+    <string name="server_url">Server URL</string>
 </resources>

@@ -8,14 +8,14 @@ namespace App\Core;
  */
 final class Lang
 {
-    public const SUPPORTED = ['gu', 'hi', 'en'];
+    public const SUPPORTED = ['en', 'gu', 'hi'];
 
-    private static string $locale = 'gu';
+    private static string $locale = 'en';
     private static array $loaded = [];
 
     public static function setLocale(string $locale): void
     {
-        self::$locale = in_array($locale, self::SUPPORTED, true) ? $locale : 'gu';
+        self::$locale = in_array($locale, self::SUPPORTED, true) ? $locale : 'en';
     }
 
     public static function locale(): string

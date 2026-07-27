@@ -262,7 +262,7 @@ class ConfigController extends Controller
         $fakeUser = [
             'id'       => 0,
             'name'     => (string) $admin['name'],
-            'language' => 'gu',
+            'language' => 'en',
             'timezone' => (string) $settings->get('default_timezone', 'Asia/Kolkata'),
         ];
 

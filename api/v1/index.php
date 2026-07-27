@@ -18,6 +18,7 @@ use App\Core\Logger;
 use App\Core\RateLimiter;
 use App\Core\Request;
 use App\Core\Response;
+use App\Services\AppPinService;
 use App\Services\FcmService;
 use App\Services\GeminiService;
 use App\Services\InboundProcessor;
@@ -260,6 +261,87 @@ try {
 
         $tokens = Auth::issueApiTokens((int) $user['id'], $deviceId);
         \App\Services\AuditService::loginAttempt($phone, true, 'api');
+
+        Response::ok([
+            'tokens' => $tokens,
+            'user'   => [
+                'id'       => (int) $user['id'],
+                'name'     => (string) $user['name'],
+                'phone'    => (string) $user['phone'],
+                'email'    => $user['email'],
+                'language' => (string) $user['language'],
+                'timezone' => (string) $user['timezone'],
+                'streak'   => (int) $user['streak_days'],
+            ],
+            'device_id' => $deviceId,
+        ], Lang::get('auth.welcome_back', ['name' => $user['name']]));
+    }
+
+    /**
+     * Sign in with the four-digit app PIN the user set on the website.
+     *
+     * This exists because OTP-over-WhatsApp was the only way in: when the
+     * gateway is down, the OTP never arrives, sign-in never completes, and the
+     * app sits on an empty list with no way forward. The PIN needs nothing but
+     * the site itself.
+     *
+     * A four-digit secret is only acceptable with the throttling and lockout in
+     * AppPinService behind it, plus the per-IP limiter below.
+     */
+    if ($segments === ['auth', 'pin'] && $method === 'POST') {
+        $phone = normalize_phone((string) Request::post('phone', ''));
+        $pin = trim((string) Request::post('pin', ''));
+
+        // Per-IP ceiling on top of the per-account lockout, so one attacker
+        // cannot work through many accounts from the same place.
+        if (!RateLimiter::attempt('pin_ip_' . Request::ip(), 20, 900)) {
+            Response::error(Lang::get('auth.otp_too_many_attempts'), 429, 'RATE_LIMITED', ['retry_after' => 900]);
+        }
+
+        $result = AppPinService::verify($phone, $pin);
+
+        if (!$result['ok']) {
+            \App\Services\AuditService::loginAttempt($phone, false, 'api_pin');
+
+            Response::error(
+                $result['message'],
+                $result['code'] === 'PIN_LOCKED' ? 429 : 401,
+                $result['code'],
+                ['retry_after' => $result['retry_after']]
+            );
+        }
+
+        $user = $result['user'];
+
+        // Same device registration as the OTP path, so a PIN sign-in is a
+        // first-class login and push still reaches the phone.
+        $deviceId = null;
+        $deviceUid = (string) Request::post('device_uid', '');
+
+        if ($deviceUid !== '') {
+            $deviceId = (int) $db->upsert('devices', [
+                'user_id'      => (int) $user['id'],
+                'device_uid'   => mb_substr($deviceUid, 0, 128),
+                'fcm_token'    => Request::post('fcm_token') ?: null,
+                'name'         => Request::post('name') ?: null,
+                'model'        => Request::post('model') ?: null,
+                'manufacturer' => Request::post('manufacturer') ?: null,
+                'os_version'   => Request::post('os_version') ?: null,
+                'app_version'  => Request::post('app_version') ?: null,
+                'platform'     => 'android',
+                'is_active'    => 1,
+                'last_seen_at' => now_utc(),
+                'created_at'   => now_utc(),
+            ], ['fcm_token', 'name', 'model', 'manufacturer', 'os_version', 'app_version', 'is_active', 'last_seen_at']);
+
+            if ($deviceId === 0) {
+                $row = $db->one('SELECT id FROM devices WHERE user_id = ? AND device_uid = ?', [(int) $user['id'], $deviceUid]);
+                $deviceId = $row === null ? null : (int) $row['id'];
+            }
+        }
+
+        $tokens = Auth::issueApiTokens((int) $user['id'], $deviceId);
+        \App\Services\AuditService::loginAttempt($phone, true, 'api_pin');
 
         Response::ok([
             'tokens' => $tokens,

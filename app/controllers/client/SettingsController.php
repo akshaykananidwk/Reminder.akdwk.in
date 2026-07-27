@@ -10,6 +10,7 @@ use App\Core\Lang;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Session;
+use App\Services\AppPinService;
 use App\Services\AuditService;
 use App\Services\FcmService;
 use App\Services\GoogleService;
@@ -36,6 +37,7 @@ class SettingsController extends Controller
             'title'      => __('nav.settings'),
             'pageTitle'  => __('nav.settings'),
             'settings'   => ReminderService::userSettings($userId),
+            'hasAppPin'  => AppPinService::isSet($userId),
             'numbers'    => App::i()->db()->all('SELECT * FROM whatsapp_numbers WHERE user_id = ? ORDER BY is_primary DESC, id ASC', [$userId]),
             'sessions'   => App::i()->db()->all(
                 'SELECT id, type, ip, user_agent, last_used_at, created_at FROM sessions WHERE user_id = ? AND revoked = 0 ORDER BY last_used_at DESC LIMIT 20',
@@ -163,6 +165,49 @@ class SettingsController extends Controller
         AuditService::log('password.changed', 'user', (int) $user['id'], [], 'user', (int) $user['id']);
 
         Session::flash('success', __('auth.password_changed'));
+        Response::redirect(url('/client/settings'));
+    }
+
+    /* -------------------------------------------------------------- App PIN */
+
+    /**
+     * Set the four-digit PIN the Android app signs in with.
+     *
+     * Guarded by the account password: whoever changes the PIN must already be
+     * able to prove they are the account holder, so a borrowed unlocked browser
+     * cannot silently mint a new way into the app.
+     */
+    public function saveAppPin(): void
+    {
+        $user = $this->requireUser();
+
+        $pin = trim((string) Request::post('app_pin', ''));
+        $confirm = trim((string) Request::post('app_pin_confirm', ''));
+        $password = (string) Request::post('current_password', '');
+
+        if (!Auth::verifyPassword($password, $user['password_hash'] ?? null)) {
+            Session::flash('error', __('auth.invalid_credentials'));
+            Response::back(url('/client/settings'));
+        }
+
+        if ($pin !== $confirm) {
+            Session::flash('error', __('pin.mismatch'));
+            Response::back(url('/client/settings'));
+        }
+
+        $result = AppPinService::set((int) $user['id'], $pin);
+
+        Session::flash($result['ok'] ? 'success' : 'error', $result['message']);
+        Response::redirect(url('/client/settings'));
+    }
+
+    public function removeAppPin(): void
+    {
+        $user = $this->requireUser();
+
+        AppPinService::clear((int) $user['id']);
+
+        Session::flash('success', __('pin.cleared'));
         Response::redirect(url('/client/settings'));
     }
 
