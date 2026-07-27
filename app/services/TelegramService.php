@@ -91,7 +91,7 @@ class TelegramService
      *
      * @return array{ok: bool, status: int, response: string, latency_ms: int}
      */
-    public static function send(string $chatId, string $message, ?string $mediaUrl = null): array
+    public static function send(string $chatId, string $message, ?string $mediaUrl = null, ?array $keyboard = null): array
     {
         $chatId = trim($chatId);
 
@@ -100,20 +100,26 @@ class TelegramService
         }
 
         if ($mediaUrl !== null && $mediaUrl !== '') {
-            $result = self::call('sendPhoto', [
+            $payload = [
                 'chat_id'    => $chatId,
                 'photo'      => $mediaUrl,
                 'caption'    => self::toHtml(mb_substr($message, 0, 1024)),
                 'parse_mode' => 'HTML',
-            ]);
+            ];
         } else {
-            $result = self::call('sendMessage', [
+            $payload = [
                 'chat_id'                  => $chatId,
                 'text'                     => self::toHtml(mb_substr($message, 0, 4096)),
                 'parse_mode'               => 'HTML',
                 'disable_web_page_preview' => true,
-            ]);
+            ];
         }
+
+        if ($keyboard !== null && $keyboard !== []) {
+            $payload['reply_markup'] = ['inline_keyboard' => $keyboard];
+        }
+
+        $result = self::call($mediaUrl !== null && $mediaUrl !== '' ? 'sendPhoto' : 'sendMessage', $payload);
 
         $ok = $result['ok'] && ($result['json']['ok'] ?? false) === true;
 
@@ -128,7 +134,7 @@ class TelegramService
     }
 
     /** Send to a user by id, if they have linked Telegram. */
-    public static function sendToUser(int $userId, string $message, ?string $mediaUrl = null): array
+    public static function sendToUser(int $userId, string $message, ?string $mediaUrl = null, ?array $keyboard = null): array
     {
         $chatId = App::i()->db()->value('SELECT telegram_chat_id FROM users WHERE id = ?', [$userId]);
 
@@ -136,7 +142,82 @@ class TelegramService
             return ['ok' => false, 'status' => 0, 'response' => 'This user has not linked Telegram', 'latency_ms' => 0];
         }
 
-        return self::send($chatId, $message, $mediaUrl);
+        return self::send($chatId, $message, $mediaUrl, $keyboard);
+    }
+
+    /* -------------------------------------------------------------- Buttons */
+
+    /**
+     * The buttons under a reminder. Tapping one acts immediately — no typing,
+     * no switching to the app.
+     *
+     * callback_data is capped at 64 bytes by Telegram, so it carries only the
+     * action and the occurrence id; everything else is looked up server-side.
+     *
+     * @return array<int, array<int, array{text: string, callback_data: string}>>
+     */
+    public static function reminderKeyboard(int $occurrenceId, string $lang = 'en'): array
+    {
+        $done = match ($lang) {
+            'gu' => '✅ થઈ ગયું',
+            'hi' => '✅ हो गया',
+            default => '✅ Done',
+        };
+
+        $snooze = static fn (int $min): string => match ($lang) {
+            'gu' => '⏰ ' . $min . ' મિનિટ',
+            'hi' => '⏰ ' . $min . ' मिनट',
+            default => '⏰ ' . $min . ' min',
+        };
+
+        $cancel = match ($lang) {
+            'gu' => '✖️ રદ કરો',
+            'hi' => '✖️ रद्द करें',
+            default => '✖️ Cancel',
+        };
+
+        return [
+            [
+                ['text' => $done, 'callback_data' => 'done:' . $occurrenceId],
+            ],
+            [
+                ['text' => $snooze(10), 'callback_data' => 'snooze:' . $occurrenceId . ':10'],
+                ['text' => $snooze(30), 'callback_data' => 'snooze:' . $occurrenceId . ':30'],
+                ['text' => $snooze(60), 'callback_data' => 'snooze:' . $occurrenceId . ':60'],
+            ],
+            [
+                ['text' => $cancel, 'callback_data' => 'cancel:' . $occurrenceId],
+            ],
+        ];
+    }
+
+    /** Answer a button tap so Telegram stops showing its loading spinner. */
+    public static function answerCallback(string $callbackId, string $text = '', bool $alert = false): void
+    {
+        if ($callbackId === '') {
+            return;
+        }
+
+        self::call('answerCallbackQuery', [
+            'callback_query_id' => $callbackId,
+            'text'              => mb_substr($text, 0, 200),
+            'show_alert'        => $alert,
+        ], 10);
+    }
+
+    /**
+     * Replace a message's buttons — used to strike out the row once an action
+     * has been taken, so the same button cannot be tapped twice.
+     */
+    public static function editMessage(string $chatId, int $messageId, string $text, ?array $keyboard = null): void
+    {
+        self::call('editMessageText', array_filter([
+            'chat_id'      => $chatId,
+            'message_id'   => $messageId,
+            'text'         => self::toHtml(mb_substr($text, 0, 4096)),
+            'parse_mode'   => 'HTML',
+            'reply_markup' => $keyboard === null ? null : ['inline_keyboard' => $keyboard],
+        ], static fn ($v): bool => $v !== null), 15);
     }
 
     /**
@@ -282,6 +363,43 @@ class TelegramService
      *
      * @return array{chat_id: string, username: string|null, text: string, message_id: string|null, is_start: bool, start_payload: string}|null
      */
+    /**
+     * A button tap, if this update is one.
+     *
+     * @return array{id: string, chat_id: string, message_id: int, action: string, occurrence_id: int, minutes: int}|null
+     */
+    public static function parseCallback(array $update): ?array
+    {
+        $query = $update['callback_query'] ?? null;
+
+        if (!is_array($query)) {
+            return null;
+        }
+
+        $chatId = (string) ($query['message']['chat']['id'] ?? '');
+        $data = (string) ($query['data'] ?? '');
+
+        if ($chatId === '' || $data === '') {
+            return null;
+        }
+
+        $parts = explode(':', $data);
+        $action = $parts[0] ?? '';
+
+        if (!in_array($action, ['done', 'snooze', 'cancel'], true)) {
+            return null;
+        }
+
+        return [
+            'id'            => (string) ($query['id'] ?? ''),
+            'chat_id'       => $chatId,
+            'message_id'    => (int) ($query['message']['message_id'] ?? 0),
+            'action'        => $action,
+            'occurrence_id' => (int) ($parts[1] ?? 0),
+            'minutes'       => (int) ($parts[2] ?? 10),
+        ];
+    }
+
     public static function parseUpdate(array $update): ?array
     {
         $message = $update['message'] ?? $update['edited_message'] ?? null;
@@ -337,7 +455,7 @@ class TelegramService
         $result = self::call('setWebhook', [
             'url'             => App::i()->url('/api/tg_webhook.php'),
             'secret_token'    => $secret,
-            'allowed_updates' => ['message', 'edited_message'],
+            'allowed_updates' => ['message', 'edited_message', 'callback_query'],
             // Old updates queued while the webhook was unset are stale by now
             // and would fire a burst of duplicate replies.
             'drop_pending_updates' => true,

@@ -163,6 +163,24 @@
             return;
         }
 
+        /* ---- Admin navigation drawer (phones) ---- */
+        if (action === 'toggle-nav' || action === 'close-nav') {
+            event.preventDefault();
+
+            const shell = document.getElementById('appShell');
+            if (!shell) return;
+
+            const open = action === 'toggle-nav' && !shell.classList.contains('nav-open');
+
+            shell.classList.toggle('nav-open', open);
+            document.body.classList.toggle('nav-locked', open);
+
+            const toggle = document.querySelector('[data-action="toggle-nav"]');
+            if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+
+            return;
+        }
+
         /* ---- Copy to clipboard ---- */
         if (action === 'copy') {
             event.preventDefault();
@@ -347,6 +365,22 @@
             if (bar) bar.classList.toggle('hide', checked === 0);
         });
     }
+
+    /* ------------------------------------------- Close the drawer on Escape */
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key !== 'Escape') return;
+
+        const shell = document.getElementById('appShell');
+
+        if (shell && shell.classList.contains('nav-open')) {
+            shell.classList.remove('nav-open');
+            document.body.classList.remove('nav-locked');
+
+            const toggle = document.querySelector('[data-action="toggle-nav"]');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        }
+    });
 
     /* ------------------------------------------------ Service worker (PWA) */
 

@@ -67,7 +67,8 @@ class WhatsAppService
         ?string $mediaUrl = null,
         int $priority = 5,
         ?string $templateKey = null,
-        ?string $scheduledAt = null
+        ?string $scheduledAt = null,
+        ?int $refId = null
     ): int {
         if (trim($message) === '' || !TelegramService::isConfigured()) {
             return 0;
@@ -85,6 +86,8 @@ class WhatsAppService
             // channel, exactly as the phone number is for WhatsApp.
             'to_number'    => mb_substr($chatId, 0, 20),
             'channel'      => 'telegram',
+            // Lets the worker attach Done / Snooze buttons to this message.
+            'ref_id'       => $refId,
             'message'      => $message,
             'media_url'    => $mediaUrl,
             'template_key' => $templateKey,
@@ -103,7 +106,8 @@ class WhatsAppService
         array $user,
         array $vars = [],
         int $priority = 5,
-        ?string $number = null
+        ?string $number = null,
+        ?int $occurrenceId = null
     ): int {
         $lang = (string) ($user['language'] ?? 'en');
         $body = TemplateService::render($templateKey, $lang, $vars);
@@ -129,7 +133,7 @@ class WhatsAppService
         // rather than a replacement: the point of a reminder is that it
         // arrives, and two cheap channels beat one that may be down.
         if ($userId !== null && App::i()->settings()->bool('tg_send_reminders', true)) {
-            self::queueTelegram($userId, $body, null, $priority, $templateKey);
+            self::queueTelegram($userId, $body, null, $priority, $templateKey, null, $occurrenceId);
         }
 
         return $queued;
@@ -282,14 +286,29 @@ class WhatsAppService
      * Deliver one queued Telegram message. Same return shape as sendNow(), so
      * the worker's success, retry and backoff handling needs no special case.
      */
-    public static function sendTelegramNow(string $chatId, string $message, ?string $mediaUrl = null, ?int $userId = null, ?int $queueId = null): array
+    public static function sendTelegramNow(string $chatId, string $message, ?string $mediaUrl = null, ?int $userId = null, ?int $queueId = null, ?int $refId = null): array
     {
         if (!TelegramService::isConfigured()) {
             return ['ok' => false, 'status' => 0, 'response' => 'Telegram is not configured', 'latency_ms' => 0, 'provider' => 'telegram', 'fatal' => true];
         }
 
         $requestId = Crypto::randomToken(8);
-        $result = TelegramService::send($chatId, $message, $mediaUrl);
+
+        // A message about a specific occurrence gets Done / Snooze / Cancel
+        // buttons, in the user's own language.
+        $keyboard = null;
+
+        if ($refId !== null && $refId > 0) {
+            $lang = 'en';
+
+            if ($userId !== null) {
+                $lang = (string) (App::i()->db()->value('SELECT language FROM users WHERE id = ?', [$userId]) ?: 'en');
+            }
+
+            $keyboard = TelegramService::reminderKeyboard($refId, $lang);
+        }
+
+        $result = TelegramService::send($chatId, $message, $mediaUrl, $keyboard);
 
         self::log(
             $queueId,
@@ -435,7 +454,8 @@ class WhatsAppService
                     (string) $row['message'],
                     $row['media_url'] ?: null,
                     $row['user_id'] !== null ? (int) $row['user_id'] : null,
-                    $id
+                    $id,
+                    isset($row['ref_id']) && $row['ref_id'] !== null ? (int) $row['ref_id'] : null
                 )
                 : self::sendNow(
                     (string) $row['to_number'],

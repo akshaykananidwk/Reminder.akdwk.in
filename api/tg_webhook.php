@@ -21,6 +21,7 @@ use App\Core\App;
 use App\Core\Logger;
 use App\Core\RateLimiter;
 use App\Core\Request;
+use App\Services\ReminderService;
 use App\Services\TelegramService;
 
 header('Content-Type: application/json; charset=utf-8');
@@ -70,13 +71,76 @@ ignore_user_abort(true);
 /* ------------------------------------------------------- 3-4. Process ---- */
 
 try {
-    $message = TelegramService::parseUpdate(is_array($update) ? $update : []);
+    $update = is_array($update) ? $update : [];
+    $db = $app->db();
+
+    /* --- A button tap ---------------------------------------------------- */
+    $callback = TelegramService::parseCallback($update);
+
+    if ($callback !== null) {
+        $user = TelegramService::userByChatId($callback['chat_id']);
+
+        if ($user === null) {
+            TelegramService::answerCallback($callback['id'], 'This chat is not connected to an account.', true);
+            exit;
+        }
+
+        // Scope by user_id: a callback carries only an occurrence id, and that
+        // arrives from the client. Without this, anyone could act on someone
+        // else's reminder by guessing a number.
+        $occurrence = $db->one(
+            'SELECT o.*, r.title FROM reminder_occurrences o
+               JOIN reminders r ON r.id = o.reminder_id
+              WHERE o.id = ? AND o.user_id = ? LIMIT 1',
+            [$callback['occurrence_id'], (int) $user['id']]
+        );
+
+        if ($occurrence === null) {
+            TelegramService::answerCallback($callback['id'], 'That reminder no longer exists.', true);
+            exit;
+        }
+
+        $title = (string) ($occurrence['title'] ?? '');
+        $lang = (string) ($user['language'] ?? 'en');
+
+        switch ($callback['action']) {
+            case 'done':
+                ReminderService::complete((int) $occurrence['id'], (int) $user['id'], 'telegram');
+                $answer = '✅ Marked done';
+                $newText = "✅ <b>Done</b>\n" . $title;
+                break;
+
+            case 'snooze':
+                $minutes = max(1, min(1440, $callback['minutes']));
+                ReminderService::snooze((int) $occurrence['id'], (int) $user['id'], $minutes, 'telegram');
+                $answer = '⏰ Snoozed ' . $minutes . ' min';
+                $newText = "⏰ <b>Snoozed " . $minutes . " min</b>\n" . $title;
+                break;
+
+            default:
+                ReminderService::cancelOccurrence((int) $occurrence['id'], (int) $user['id'], 'telegram');
+                $answer = '✖️ Cancelled';
+                $newText = "✖️ <b>Cancelled</b>\n" . $title;
+                break;
+        }
+
+        TelegramService::answerCallback($callback['id'], $answer);
+
+        // Drop the buttons so the same action cannot be tapped twice.
+        if ($callback['message_id'] > 0) {
+            TelegramService::editMessage($callback['chat_id'], $callback['message_id'], $newText);
+        }
+
+        exit;
+    }
+
+    /* --- An ordinary message --------------------------------------------- */
+    $message = TelegramService::parseUpdate($update);
 
     if ($message === null) {
         exit;
     }
 
-    $db = $app->db();
     $chatId = $message['chat_id'];
 
     /* --- /start <code>: link this chat to an account ------------------- */

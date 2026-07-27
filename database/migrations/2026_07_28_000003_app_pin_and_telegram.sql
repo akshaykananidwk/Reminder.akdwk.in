@@ -76,6 +76,14 @@ SET @sql := IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+SET @sql := IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'wa_outbound_queue' AND column_name = 'ref_id') = 0,
+  'ALTER TABLE `wa_outbound_queue` ADD COLUMN `ref_id` INT UNSIGNED NULL AFTER `channel`',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- Every enum that records where something came from has to learn the new
 -- channel, or the inserts fail (strict mode) or silently truncate (otherwise).
 ALTER TABLE `ai_queue`

@@ -139,7 +139,43 @@ class SchedulerService
             $anyChannelWorked = $result['sent'] > 0;
         }
 
-        // --- Channel 2: WhatsApp text (fallback / final attempt) ------------
+        // --- Channel 2: Telegram (always, when linked) ----------------------
+        //
+        // Unlike WhatsApp this costs nothing, has no 24-hour window and needs
+        // no approved template, so there is no reason to hold it back as a
+        // fallback. It also carries Done / Snooze buttons, which the WhatsApp
+        // text cannot.
+        if (App::i()->settings()->bool("tg_send_reminders", true) && !empty($user["telegram_chat_id"])) {
+            $tgBody = TemplateService::render('reminder_due', (string) $user['language'], [
+                'code'  => (string) $reminder['short_code'],
+                'title' => (string) $reminder['title'],
+                'time'  => ReminderService::formatWhen((string) $occurrence['due_at'], (string) $user['language'], (string) $user['timezone']),
+            ]);
+
+            if ($tgBody !== '') {
+                $tgQueueId = WhatsAppService::queueTelegram(
+                    (int) $user['id'],
+                    $tgBody,
+                    null,
+                    2,
+                    'reminder_due',
+                    null,
+                    (int) $occurrence['id']
+                );
+
+                $db->insert('delivery_attempts', [
+                    'delivery_id' => $deliveryId,
+                    'channel'     => 'telegram',
+                    'target'      => (string) $user['telegram_chat_id'],
+                    'attempt_no'  => $attemptNo,
+                    'sent_at'     => now_utc(),
+                    'result'      => $tgQueueId > 0 ? 'success' : 'failed',
+                    'response'    => 'queue#' . $tgQueueId,
+                ]);
+            }
+        }
+
+        // --- Channel 3: WhatsApp text (fallback / final attempt) ------------
         $whatsappNow = (int) ($settings['whatsapp_fallback'] ?? 1) === 1
             && ($attemptNo >= $maxAttempts || !$anyChannelWorked);
 

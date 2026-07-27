@@ -71,8 +71,10 @@ $isActive = static fn (string $href): bool => $href === '/client' ? $path === '/
     </div>
 <?php endif; ?>
 
-<div class="app-shell">
-    <aside class="sidebar">
+<div class="app-shell" id="appShell">
+    <div class="nav-scrim" data-action="close-nav" aria-hidden="true"></div>
+
+    <aside class="sidebar" id="clientSidebar">
         <a class="logo" href="<?= e(url('/client')) ?>">
             <span class="mark">🕉️</span>
             <span><?= e((string) $settings->get('site_name', 'Krishna Reminder')) ?></span>
@@ -102,7 +104,9 @@ $isActive = static fn (string $href): bool => $href === '/client' ? $path === '/
 
     <div class="app-main">
         <div class="app-topbar">
-            <h1><?= e($pageTitle ?? ($title ?? '')) ?></h1>
+            <button class="icon-btn nav-toggle" data-action="toggle-nav"
+                    aria-label="Menu" aria-controls="clientSidebar" aria-expanded="false">☰</button>
+            <h1 class="grow"><?= e($pageTitle ?? ($title ?? '')) ?></h1>
 
             <div class="flex">
                 <button class="icon-btn" data-action="toggle-theme" aria-label="Toggle dark mode">◐</button>

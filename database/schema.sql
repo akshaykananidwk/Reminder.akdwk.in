@@ -602,6 +602,7 @@ CREATE TABLE IF NOT EXISTS `wa_outbound_queue` (
   `user_id` INT UNSIGNED NULL,
   `to_number` VARCHAR(20) NOT NULL,
   `channel` VARCHAR(16) NOT NULL DEFAULT 'whatsapp' COMMENT 'whatsapp | telegram',
+  `ref_id` INT UNSIGNED NULL COMMENT 'occurrence this message is about, for action buttons',
   `message` TEXT NOT NULL,
   `media_url` VARCHAR(512) NULL,
   `template_key` VARCHAR(60) NULL,

@@ -32,9 +32,16 @@
     --font-gu: 'Anek Gujarati', 'Noto Sans Gujarati', var(--font);
     --header-h: 60px;
     --bottomnav-h: 62px;
+
+    color-scheme: light;
 }
 
 [data-theme="dark"] {
+    /* Without this the browser still paints native widgets — select popups,
+       date pickers, scrollbars, autofill — in their light colours, which is
+       where most "white box on a dark page" comes from. */
+    color-scheme: dark;
+
     --surface: #10141d;
     --card: #182030;
     --line: #27304a;
@@ -197,8 +204,16 @@ code { background: var(--blue-100); padding: 2px 6px; border-radius: 6px; font-s
 .field label, .form-label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
 .hint { font-size: 12.5px; color: var(--muted); font-weight: 400; display: block; margin-top: 4px; }
 
-input[type=text], input[type=tel], input[type=email], input[type=password], input[type=number],
-input[type=date], input[type=time], input[type=datetime-local], input[type=search], input[type=url],
+/*
+ * Every text-like field, including <input> with no type attribute at all.
+ *
+ * Listing types explicitly missed those, because `<input name="x">` is a text
+ * field but does not match `input[type=text]`. Unstyled, they fell back to the
+ * browser default — a white box with black text — which in dark mode is an
+ * unreadable white rectangle. Excluding the handful of non-text types is the
+ * only way to catch the rest.
+ */
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=submit]):not([type=button]):not([type=reset]):not([type=image]):not([type=range]):not([type=color]):not([type=hidden]),
 select, textarea {
     width: 100%;
     min-height: 44px;
@@ -403,7 +418,40 @@ table.data tbody tr:hover { background: var(--surface); }
     .app-content { padding: 24px; max-width: 1200px; }
 }
 
-@media (max-width: 899px) { .sidebar { display: none; } }
+/*
+ * On a phone the sidebar used to be display:none with nothing to open it, and
+ * the bottom bar only carries five links — so WhatsApp, Telegram, AI,
+ * Templates, Settings and the rest of the admin were simply unreachable from a
+ * phone. It is now a slide-in drawer behind the ☰ button in the top bar.
+ */
+@media (max-width: 899px) {
+    .sidebar {
+        position: fixed; top: 0; left: 0; bottom: 0; z-index: 300;
+        width: min(84vw, 300px); height: 100dvh;
+        transform: translateX(-100%);
+        transition: transform .22s ease;
+        box-shadow: var(--shadow-lg);
+        padding-bottom: 28px;
+    }
+
+    .app-shell.nav-open .sidebar { transform: translateX(0); }
+
+    .nav-scrim {
+        position: fixed; inset: 0; z-index: 290;
+        background: rgba(8, 12, 22, .55);
+        opacity: 0; pointer-events: none;
+        transition: opacity .22s ease;
+    }
+
+    .app-shell.nav-open .nav-scrim { opacity: 1; pointer-events: auto; }
+
+    /* Nothing behind the drawer should scroll while it is open. */
+    body.nav-locked { overflow: hidden; }
+}
+
+@media (min-width: 900px) {
+    .nav-toggle, .nav-scrim { display: none !important; }
+}
 
 /* ------------------------------------------------------------ Bottom nav */
 

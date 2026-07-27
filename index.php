@@ -45,6 +45,9 @@ if ($app->settings()->bool('maintenance_mode') && !str_starts_with($path, '/admi
 
 Session::start();
 
+// An admin can pin the whole site to one language; that beats everything else.
+Lang::forceLocale((string) $app->settings()->get('force_language', ''));
+
 $locale = (string) (Request::get('lang') ?: Session::get('locale') ?: '');
 
 if ($locale === '' && Auth::check()) {
@@ -52,7 +55,7 @@ if ($locale === '' && Auth::check()) {
 }
 
 if ($locale === '') {
-    $locale = (string) $app->settings()->get('default_language', $app->config('app.locale', 'gu'));
+    $locale = (string) $app->settings()->get('default_language', $app->config('app.locale', 'en'));
 }
 
 if (in_array((string) Request::get('lang'), Lang::SUPPORTED, true)) {

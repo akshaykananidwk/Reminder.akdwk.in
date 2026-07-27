@@ -40,7 +40,7 @@ class ConfigController extends Controller
 
         foreach ([
             'site_name', 'company_name', 'company_address', 'company_phone', 'company_email',
-            'company_gstin', 'support_whatsapp', 'default_language', 'default_timezone', 'currency',
+            'company_gstin', 'support_whatsapp', 'default_language', 'force_language', 'default_timezone', 'currency',
             'ga4_id', 'search_console_verification', 'meta_description', 'apk_release_url',
             'alert_admin_number', 'cron_alert_minutes', 'referral_commission_percent', 'gst_rate',
             'invoice_prefix', 'grace_days', 'app_version', 'app_min_version', 'app_release_notes',

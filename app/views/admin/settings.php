@@ -12,6 +12,14 @@
                     <option value="<?= e($code) ?>"<?= (string) $settings->get('default_language') === $code ? ' selected' : '' ?>><?= e($label) ?></option>
                 <?php endforeach; ?>
             </select></label></div>
+        <div class="field"><label>Force language for everyone
+            <select name="force_language">
+                <option value=""<?= (string) $settings->get('force_language', '') === '' ? ' selected' : '' ?>>Off — each user picks their own</option>
+                <?php foreach (['en' => 'English', 'gu' => 'ગુજરાતી', 'hi' => 'हिन्दी'] as $code => $label): ?>
+                    <option value="<?= e($code) ?>"<?= (string) $settings->get('force_language', '') === $code ? ' selected' : '' ?>><?= e($label) ?> — whole site</option>
+                <?php endforeach; ?>
+            </select>
+            <span class="hint">"Default language" only applies to people who have not chosen one. This overrides every user's own choice, including yours.</span></label></div>
         <div class="field"><label>Default timezone<input name="default_timezone" value="<?= e((string) $settings->get('default_timezone', 'Asia/Kolkata')) ?>"></label></div>
         <div class="field"><label>Currency<input name="currency" value="<?= e((string) $settings->get('currency', 'INR')) ?>" maxlength="3"></label></div>
         <div class="field"><label>Alert admin number<input name="alert_admin_number" value="<?= e((string) $settings->get('alert_admin_number', '')) ?>"></label></div>

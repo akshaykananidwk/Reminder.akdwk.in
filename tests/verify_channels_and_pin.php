@@ -255,6 +255,117 @@ foreach (['gu', 'hi', 'en'] as $locale) {
     );
 }
 
+echo "\n=== 5. Telegram action buttons ===\n\n";
+
+$kb = TelegramService::reminderKeyboard(42, 'gu');
+
+assertThat('a reminder gets three rows of buttons', count($kb) === 3);
+assertThat('Done is first', ($kb[0][0]['callback_data'] ?? '') === 'done:42');
+assertThat('three snooze choices', count($kb[1]) === 3);
+assertThat('snooze carries its minutes', ($kb[1][1]['callback_data'] ?? '') === 'snooze:42:30');
+assertThat('cancel is present', ($kb[2][0]['callback_data'] ?? '') === 'cancel:42');
+assertThat('buttons are in the user language', str_contains((string) ($kb[0][0]['text'] ?? ''), 'થઈ ગયું'));
+
+foreach ($kb as $row) {
+    foreach ($row as $button) {
+        // Telegram hard-rejects anything longer.
+        assertThat('callback_data within 64 bytes: ' . $button['callback_data'],
+            strlen($button['callback_data']) <= 64);
+    }
+}
+
+$cb = TelegramService::parseCallback([
+    'callback_query' => [
+        'id' => 'q1', 'data' => 'snooze:42:30',
+        'message' => ['message_id' => 7, 'chat' => ['id' => '111']],
+    ],
+]);
+
+assertThat('a button tap parses', $cb !== null);
+assertThat('action read', ($cb['action'] ?? '') === 'snooze');
+assertThat('occurrence read', ($cb['occurrence_id'] ?? 0) === 42);
+assertThat('minutes read', ($cb['minutes'] ?? 0) === 30);
+
+assertThat('an ordinary message is not a callback',
+    TelegramService::parseCallback(['message' => ['chat' => ['id' => 1], 'text' => 'hi']]) === null);
+
+assertThat('an unknown action is refused',
+    TelegramService::parseCallback([
+        'callback_query' => ['id' => 'x', 'data' => 'drop_table:1', 'message' => ['message_id' => 1, 'chat' => ['id' => '1']]],
+    ]) === null,
+    'callback_data comes from the client');
+
+$tgSrc = (string) file_get_contents(__DIR__ . '/../app/services/TelegramService.php');
+
+assertThat('the webhook subscribes to button taps',
+    str_contains($tgSrc, "'callback_query'"),
+    'without this Telegram never delivers them');
+
+$hook = (string) file_get_contents(__DIR__ . '/../api/tg_webhook.php');
+
+assertThat('a tap is scoped to the tapping user',
+    (bool) preg_match('/WHERE o\.id = \? AND o\.user_id = \?/', $hook),
+    'the occurrence id arrives from the client');
+
+assertThat('the tap is acknowledged so the spinner stops',
+    str_contains($hook, 'answerCallback'));
+
+assertThat('buttons are removed after use',
+    str_contains($hook, 'editMessage'),
+    'otherwise the same action can be tapped twice');
+
+echo "\n=== 6. The site can be pinned to one language ===\n\n";
+
+App\Core\Lang::forceLocale('en');
+App\Core\Lang::setLocale('gu');
+assertThat('a forced language beats a per-user choice', App\Core\Lang::locale() === 'en');
+assertThat('and reports itself as forced', App\Core\Lang::isForced());
+
+App\Core\Lang::forceLocale(null);
+App\Core\Lang::setLocale('gu');
+assertThat('unforced, the user keeps their own language', App\Core\Lang::locale() === 'gu');
+assertThat('and reports itself as not forced', !App\Core\Lang::isForced());
+
+App\Core\Lang::forceLocale('zz');
+assertThat('an unsupported code is ignored, not applied', !App\Core\Lang::isForced());
+App\Core\Lang::setLocale('en');
+
+$index = (string) file_get_contents(__DIR__ . '/../index.php');
+assertThat('the front controller applies it before anything else',
+    strpos($index, 'Lang::forceLocale') < strpos($index, 'Lang::setLocale($locale)'));
+
+echo "\n=== 7. Every text field is styled, in both themes ===\n\n";
+
+$css = (string) file_get_contents(__DIR__ . '/../assets/css/app.css');
+
+assertThat('inputs are matched without needing a type attribute',
+    str_contains($css, 'input:not([type=checkbox])'),
+    '<input name="x"> is a text field but never matched input[type=text]');
+
+assertThat('checkboxes and radios are excluded',
+    str_contains($css, ':not([type=radio])') && str_contains($css, ':not([type=file])'));
+
+assertThat('the browser is told which theme is active',
+    str_contains($css, 'color-scheme: dark') && str_contains($css, 'color-scheme: light'),
+    'native selects, date pickers and autofill ignore CSS colours otherwise');
+
+assertThat('the phone sidebar is a drawer, not display:none',
+    str_contains($css, '.app-shell.nav-open .sidebar'),
+    'half the admin was unreachable on a phone');
+
+foreach (['admin', 'client'] as $layout) {
+    $src = (string) file_get_contents(__DIR__ . '/../app/views/layouts/' . $layout . '.php');
+
+    assertThat($layout . ' layout has a menu button', str_contains($src, 'data-action="toggle-nav"'));
+    assertThat($layout . ' layout has a scrim to close it', str_contains($src, 'data-action="close-nav"'));
+}
+
+$js = (string) file_get_contents(__DIR__ . '/../assets/js/app.js');
+
+assertThat('the drawer opens and closes', str_contains($js, "action === 'toggle-nav'"));
+assertThat('Escape closes it', str_contains($js, "event.key !== 'Escape'"));
+assertThat('the page behind it cannot scroll', str_contains($js, 'nav-locked'));
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

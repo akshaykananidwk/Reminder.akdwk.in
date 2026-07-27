@@ -54,8 +54,10 @@ $isActive = static fn (string $href): bool => $href === '/admin' ? $path === '/a
 <link rel="stylesheet" href="<?= e(asset('css/app.css')) ?>">
 </head>
 <body>
-<div class="app-shell">
-    <aside class="sidebar">
+<div class="app-shell" id="appShell">
+    <div class="nav-scrim" data-action="close-nav" aria-hidden="true"></div>
+
+    <aside class="sidebar" id="adminSidebar">
         <a class="logo" href="<?= e(url('/admin')) ?>">
             <span class="mark">🕉️</span><span>Admin</span>
         </a>
@@ -84,7 +86,9 @@ $isActive = static fn (string $href): bool => $href === '/admin' ? $path === '/a
 
     <div class="app-main">
         <div class="app-topbar">
-            <h1><?= e($pageTitle ?? $title) ?></h1>
+            <button class="icon-btn nav-toggle" data-action="toggle-nav"
+                    aria-label="Menu" aria-controls="adminSidebar" aria-expanded="false">☰</button>
+            <h1 class="grow"><?= e($pageTitle ?? $title) ?></h1>
             <div class="flex">
                 <span class="text-sm text-muted desktop-only"><?= e((string) ($authAdmin['name'] ?? '')) ?></span>
                 <button class="icon-btn" data-action="toggle-theme" aria-label="Toggle dark mode">◐</button>

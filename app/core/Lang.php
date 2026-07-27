@@ -11,10 +11,41 @@ final class Lang
     public const SUPPORTED = ['en', 'gu', 'hi'];
 
     private static string $locale = 'en';
+    private static ?string $forced = null;
     private static array $loaded = [];
+
+    /**
+     * Pin the whole site to one language, ignoring each user's own choice.
+     *
+     * Set from Admin → Settings. Without it, a per-user `language` column wins
+     * over the site default, so changing the default alone leaves every
+     * existing account exactly where it was — which looks like the setting did
+     * nothing at all.
+     */
+    public static function forceLocale(?string $locale): void
+    {
+        self::$forced = in_array((string) $locale, self::SUPPORTED, true) ? (string) $locale : null;
+
+        if (self::$forced !== null) {
+            self::$locale = self::$forced;
+        }
+    }
+
+    public static function isForced(): bool
+    {
+        return self::$forced !== null;
+    }
 
     public static function setLocale(string $locale): void
     {
+        // A forced language must survive every later call — logging in, the API
+        // switching to the user's language, anything.
+        if (self::$forced !== null) {
+            self::$locale = self::$forced;
+
+            return;
+        }
+
         self::$locale = in_array($locale, self::SUPPORTED, true) ? $locale : 'en';
     }
 
