@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.php text
+*.kt text
+*.sql text
+*.md text
+*.png binary
+*.jpg binary
+*.apk binary
+*.keystore binary

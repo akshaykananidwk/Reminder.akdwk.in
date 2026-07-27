@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Reminders re-sync from the server; tokens must never leave the device. -->
+    <exclude domain="sharedpref" path="krishna_secure_prefs.xml" />
+    <exclude domain="database" path="krishna.db" />
+</full-backup-content>

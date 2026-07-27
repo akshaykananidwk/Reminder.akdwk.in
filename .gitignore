@@ -1,0 +1,40 @@
+# Runtime configuration and lock
+/config/config.php
+/config/install.lock
+.env
+
+# Runtime data
+/storage/logs/*
+/storage/cache/*
+/storage/temp/*
+!/storage/*/.gitkeep
+/uploads/**
+!/uploads/.htaccess
+!/uploads/*/.gitkeep
+/backups/*
+!/backups/.htaccess
+!/backups/.gitkeep
+
+# Never commit dumps or archives
+*.sql.gz
+*.zip
+*.bak
+
+# Android build output
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/.idea/
+/android/captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

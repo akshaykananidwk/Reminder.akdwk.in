@@ -1,0 +1,75 @@
+<resources>
+    <string name="quick_add">રિમાઇન્ડર ઉમેરો</string>
+    <string name="widget_title">આજે</string>
+
+    <string name="channel_call_name">રિમાઇન્ડર કોલ</string>
+    <string name="channel_call_desc">આખી સ્ક્રીન પર વાગતાં રિમાઇન્ડર</string>
+    <string name="channel_general_name">સામાન્ય</string>
+    <string name="channel_general_desc">અપડેટ અને રિપોર્ટ</string>
+    <string name="channel_advance_name">પહેલાંની જાણ</string>
+    <string name="channel_advance_desc">સમય પહેલાં શાંત સૂચના</string>
+    <string name="channel_missed_name">ચૂકી ગયેલાં</string>
+    <string name="channel_missed_desc">જે રિમાઇન્ડર ઉપાડ્યાં નથી</string>
+
+    <string name="incoming_reminder">કૃષ્ણ રિમાઇન્ડર</string>
+    <string name="action_done">થઈ ગયું</string>
+    <string name="action_snooze">5 મિનિટ પછી</string>
+    <string name="action_reschedule">ફરી ગોઠવો</string>
+    <string name="action_dismiss">રદ</string>
+    <string name="missed_reminder">ચૂકી ગયેલું રિમાઇન્ડર</string>
+
+    <string name="onboarding_1_title">WhatsApp પર મેસેજ કરો</string>
+    <string name="onboarding_1_body">બોલો એમ જ લખો — "કાલે સવારે 10 વાગ્યે બેંક જવાનું છે".</string>
+    <string name="onboarding_2_title">AI સમજી લે છે</string>
+    <string name="onboarding_2_body">તારીખ, સમય, પુનરાવર્તન અને રકમ — બધું આપોઆપ.</string>
+    <string name="onboarding_3_title">તમારો ફોન વાગે છે</string>
+    <string name="onboarding_3_body">આખી સ્ક્રીન પર કોલ આવે અને અવાજમાં યાદ કરાવે.</string>
+
+    <string name="permissions_title">થોડી પરવાનગી જોઈશે</string>
+    <string name="permissions_body">આનાથી જ ફોન સાચા સમયે વાગશે.</string>
+    <string name="perm_notifications">સૂચનાઓ</string>
+    <string name="perm_notifications_why">કોલ સ્ક્રીન બતાવવા માટે.</string>
+    <string name="perm_alarms">ચોક્કસ એલાર્મ</string>
+    <string name="perm_alarms_why">ઇન્ટરનેટ વગર પણ બરાબર સમયે વાગે તે માટે.</string>
+    <string name="perm_battery">બેટરી ઓપ્ટિમાઇઝેશન</string>
+    <string name="perm_battery_why">એપને બેકગ્રાઉન્ડમાં બંધ થતી અટકાવે છે.</string>
+    <string name="perm_autostart">ઓટોસ્ટાર્ટ</string>
+    <string name="perm_autostart_why">Xiaomi, Oppo, Vivo, Realme, Samsung માં જાતે ચાલુ કરવું પડે.</string>
+    <string name="grant">પરવાનગી આપો</string>
+    <string name="granted">આપી દીધી</string>
+    <string name="skip">છોડો</string>
+    <string name="continue_label">આગળ</string>
+
+    <string name="login_title">લોગિન</string>
+    <string name="login_subtitle">તમારો WhatsApp નંબર લખો</string>
+    <string name="send_otp">WhatsApp પર OTP મોકલો</string>
+    <string name="enter_otp">6 આંકડાનો કોડ લખો</string>
+    <string name="verify">વેરિફાય કરો</string>
+    <string name="resend">ફરી કોડ મોકલો</string>
+
+    <string name="nav_home">હોમ</string>
+    <string name="nav_reminders">રિમાઇન્ડર</string>
+    <string name="nav_payments">પેમેન્ટ</string>
+    <string name="nav_settings">સેટિંગ</string>
+
+    <string name="today">આજે</string>
+    <string name="upcoming">આવનારાં</string>
+    <string name="overdue">ચૂકી ગયેલાં</string>
+    <string name="completed">પૂરાં થયેલાં</string>
+    <string name="pending">બાકી</string>
+    <string name="notes">નોંધ</string>
+    <string name="reports">રિપોર્ટ</string>
+    <string name="devices">ડિવાઇસ</string>
+    <string name="about">અમારા વિશે</string>
+    <string name="profile">પ્રોફાઇલ</string>
+    <string name="logout">લોગ આઉટ</string>
+    <string name="save">સેવ કરો</string>
+    <string name="cancel">રદ કરો</string>
+    <string name="delete">ડિલીટ</string>
+    <string name="retry">ફરી પ્રયત્ન</string>
+    <string name="offline_banner">ઓફલાઇન — તમારી ક્રિયા આપોઆપ સિંક થશે.</string>
+    <string name="permission_banner">થોડી પરવાનગી બાકી છે, રિમાઇન્ડર ન વાગી શકે.</string>
+    <string name="natural_hint">સાદી ભાષામાં લખો: "કાલે 10 વાગ્યે બેંક જવાનું"</string>
+    <string name="check_update">અપડેટ તપાસો</string>
+    <string name="nothing_today">આજે કંઈ કામ નથી.</string>
+</resources>

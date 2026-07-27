@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_blue">#FF1B3A6B</color>
+    <color name="brand_blue_dark">#FF16305A</color>
+    <color name="brand_gold">#FFF2B33D</color>
+    <color name="brand_green">#FF1E8E5A</color>
+    <color name="brand_red">#FFC0392B</color>
+    <color name="surface_light">#FFF7F8FB</color>
+    <color name="surface_dark">#FF10141D</color>
+    <color name="ic_launcher_background">#FF1B3A6B</color>
+</resources>

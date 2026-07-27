@@ -1,0 +1,107 @@
+# Changelog
+
+All notable changes to Krishna Reminder are recorded here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
+project uses [Semantic Versioning](https://semver.org/).
+
+---
+
+## [1.0.0] — 2026-07-27
+
+First complete release: web platform, WhatsApp + AI engine, and the Android app.
+
+### Web platform (PHP 8.1+ / MySQL)
+
+- **One-click installer** (`/install`) — eight steps, writes `config/config.php`
+  itself, imports the schema and seed, live-tests the WhatsApp gateway and
+  Gemini, verifies cron actually ran, then locks itself.
+- **Front controller** with a pattern router, middleware (auth, admin, guest,
+  CSRF) and hardened sessions.
+- **Public site** — landing page, features, pricing, blog CMS, FAQ, contact,
+  ten city landing pages, and the legal pages a payment gateway asks for
+  (privacy, terms, refund, cancellation). SEO: dynamic meta, Open Graph,
+  JSON-LD `SoftwareApplication` + `FAQPage`, `sitemap.xml`, `robots.txt`, GA4
+  and Search Console fields.
+- **Auth** — registration with mandatory WhatsApp number, 6-digit OTP over our
+  own gateway (5 min expiry, 5 attempts, 60 s cooldown, per-number and per-IP
+  limits), password or OTP login, 90-day remember-me, WhatsApp password reset,
+  optional Google sign-in, session list with per-device revoke.
+- **Client dashboard** — home with live countdown and progress ring, reminders
+  with filters and bulk actions, full add/edit form, calendar month view,
+  payment ledger with partial payments and EMI series, notes, contacts and
+  staff, reports with CSV/ICS/print-to-PDF export, WhatsApp Inbox showing what
+  the AI understood, devices with test call, integrations, billing, referral
+  ledger, settings, and a Gujarati command cheat-sheet.
+- **Admin panel** — dashboard with AI cost chart and cron health, user
+  management with audit-logged impersonation, plans/subscriptions/invoices/
+  coupons, WhatsApp settings with live test and logs, Gemini settings with a
+  hard monthly token budget, per-language message templates, cron monitor with
+  *Run now*, logs, per-user AI cost report, broadcast, content and SEO, system
+  page with backups and restore, and the GitHub updater.
+- **GitHub auto-update engine** — check shows commit SHA, message, author, date
+  and changed-file count; update runs backup → download → extract → copy
+  (respecting the protected list and `.updateignore`) → migrations → health
+  check, with **automatic rollback** and a WhatsApp alert on failure.
+- **Cron engine** — ten PHP-CLI jobs, `flock` mutexes, `cron_runs` accounting,
+  stale-job WhatsApp alerts, and a token-protected web-cron fallback.
+- **Security** — PDO prepared statements throughout, CSRF on every POST, output
+  escaping, Argon2id/bcrypt, login throttling and lockout, rate limits on OTP,
+  API and webhook, HMAC or shared secret on the webhook, AES-256-GCM encryption
+  for API keys and OAuth tokens, secure uploads with no execution in
+  `/uploads`, CSP and security headers, audit log, data export and account
+  deletion.
+- **Backups outside the web root** (`../kr-backups`), pure-PHP `mysqldump`,
+  rotation, and a repeated check that no `.zip`/`.sql` is reachable over HTTP.
+
+### WhatsApp + AI
+
+- Gateway client for `bulk.akdwk.in` — POST + JSON only, queued, rate-limited,
+  retried three times with exponential backoff, fully logged.
+- Inbound webhook with secret/HMAC verification, sub-second `200`, phone
+  normalisation, strict whitelist, deduplication and asynchronous processing.
+- **Quick commands** (LIST/યાદી, TODAY/આજે, PENDING/બાકી, DONE, SNOOZE, CANCEL,
+  PAID, SUMMARY, LANG, STOP/START, HELP/મદદ) — instant and free of AI cost.
+- **Gemini engine** — short system prompt, JSON-only output, low temperature,
+  capped tokens, 24-hour cache, key rotation, per-user monthly quotas, global
+  budget hard stop, and per-request token/cost logging.
+- **Fallback parser** — pure PHP, covering Gujarati, Hindi and English date,
+  time, repetition and amount expressions (કાલે, પરમ દિવસે, દર સોમવારે,
+  દર મહિને 5 તારીખે, 15 મિનિટ પછી, બે કલાક પછી, આવતા શુક્રવારે …), plus
+  Gujarati and Devanagari numeral normalisation.
+- Twenty message templates × three languages, all editable in admin.
+- Morning brief and night summary at each user's own local time.
+
+### Android app (Kotlin, Jetpack Compose)
+
+- Language selection, three onboarding slides, and a permission wizard that
+  explains each item and deep-links to the OEM autostart screen on Xiaomi,
+  Oppo, Vivo, Realme, Samsung, Huawei and others.
+- WhatsApp-OTP login that stays signed in (30-day access token, 2-year refresh
+  token, silent renewal on 401).
+- **The call experience** — FCM high-priority data push starts a foreground
+  service that posts a CallStyle full-screen-intent notification and launches a
+  full-screen activity over the lock screen, rings, vibrates, and speaks the
+  reminder twice with `gu-IN → hi-IN → en-IN` fallback. Done / Snooze
+  (5·10·15·30·60) / Reschedule / Dismiss.
+- **Local exact alarms** for every occurrence (`setExactAndAllowWhileIdle`) with
+  on-device speech composition, so the phone rings with no network at all.
+- Boot, app-update, timezone and clock-change receivers re-arm every alarm.
+- Room cache, offline action queue with client-id deduplication, and a
+  15-minute WorkManager reconcile.
+- Home dashboard, reminders with filters, payments, natural-language and full
+  add forms, settings with a test call, about with update check.
+- Home-screen widget (today's list) and a Quick Settings "Add reminder" tile.
+- Share text from any app to create a reminder.
+
+### Build and CI
+
+- `.github/workflows/android.yml` — JDK 17 + Gradle cache, debug and release
+  APKs, signing from repository secrets, `versionCode` auto-incremented from the
+  run number, artifacts on every build, and a GitHub Release with the APK
+  attached on tags.
+- `.github/workflows/php-lint.yml` — PHP 8.1 and 8.3 syntax check over every
+  file, a MySQL service that imports `schema.sql` + `seed.sql` and asserts the
+  core tables and seeded templates exist, and a guard against archives in the
+  web root.
+
+[1.0.0]: https://github.com/akshaykananidwk/reminder.akdwk.in/releases/tag/v1.0.0

@@ -1,0 +1,7 @@
+config/config.php
+config/install.lock
+uploads/
+storage/
+backups/
+.env
+.git/

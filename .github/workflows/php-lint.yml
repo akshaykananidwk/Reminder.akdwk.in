@@ -1,0 +1,120 @@
+name: PHP lint
+
+# Syntax-checks every PHP file and validates the SQL schema loads cleanly.
+# Keeps the one-click updater safe: a broken file can never reach production.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths-ignore:
+      - 'android/**'
+  pull_request:
+    paths-ignore:
+      - 'android/**'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.3']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_mysql, curl, mbstring, json, openssl, zip, gd, fileinfo
+          coverage: none
+
+      - name: Lint all PHP files
+        run: |
+          FAILED=0
+
+          while IFS= read -r file; do
+            if ! php -l "$file" > /dev/null 2>&1; then
+              echo "::error file=$file::Syntax error"
+              php -l "$file" || true
+              FAILED=1
+            fi
+          done < <(find . -type f -name '*.php' -not -path './android/*' -not -path './vendor/*')
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "PHP syntax errors found."
+            exit 1
+          fi
+
+          echo "All PHP files parse cleanly."
+
+      - name: Check for stray archives in the web root
+        run: |
+          # Backups or dumps reachable over HTTP is how a domain gets flagged.
+          FOUND=$(find . -maxdepth 1 -type f \( -name '*.sql' -o -name '*.zip' -o -name '*.bak' \) | wc -l)
+
+          if [ "$FOUND" -gt 0 ]; then
+            echo "::error::Archive or dump files must not sit in the web root."
+            find . -maxdepth 1 -type f \( -name '*.sql' -o -name '*.zip' -o -name '*.bak' \)
+            exit 1
+          fi
+
+          echo "Web root is clean."
+
+  schema:
+    name: Import schema into MySQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: krishna_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import schema and seed
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot krishna_test < database/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot krishna_test < database/seed.sql
+
+      - name: Verify the tables the app depends on
+        run: |
+          for table in users reminders reminder_occurrences deliveries wa_inbound_raw \
+                       wa_outbound_queue ai_logs plans subscriptions settings templates \
+                       cron_runs schema_migrations payments notes contacts; do
+            COUNT=$(mysql -h 127.0.0.1 -P 3306 -uroot -proot -N -B -e \
+              "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='krishna_test' AND table_name='$table'")
+
+            if [ "$COUNT" != "1" ]; then
+              echo "::error::Missing table: $table"
+              exit 1
+            fi
+          done
+
+          SEEDED=$(mysql -h 127.0.0.1 -P 3306 -uroot -proot -N -B -e \
+            "SELECT COUNT(*) FROM krishna_test.templates")
+
+          echo "Templates seeded: $SEEDED"
+
+          if [ "$SEEDED" -lt 30 ]; then
+            echo "::error::Message templates were not seeded."
+            exit 1
+          fi
+
+          echo "Schema and seed verified."

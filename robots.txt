@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /client/
+Disallow: /admin/
+Disallow: /install/
+Disallow: /api/
+Disallow: /uploads/
+Disallow: /cron.php
+
+Sitemap: https://reminder.akdwk.in/sitemap.xml

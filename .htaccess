@@ -1,0 +1,93 @@
+# ---------------------------------------------------------------------------
+# Krishna Reminder — Apache configuration
+# ---------------------------------------------------------------------------
+
+Options -Indexes +FollowSymLinks
+DirectoryIndex index.php index.html
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Force HTTPS (comment out if the site runs behind a TLS-terminating proxy
+    # that already sets X-Forwarded-Proto).
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteCond %{HTTP_HOST} !^localhost [NC]
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+    # Mobile API -> single front controller.
+    RewriteRule ^api/v1(/.*)?$ api/v1/index.php [QSA,L]
+
+    # Everything else that is not a real file/directory -> front controller.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# --------------------------------------------------------------- Hard denies
+# Never serve archives, dumps, logs or version control from the web root.
+# Leaving these reachable is how a domain gets flagged as compromised.
+
+<FilesMatch "\.(sql|zip|tar|gz|bz2|bak|log|ini|sh|env|lock|dist|yml|yaml)$">
+    Require all denied
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<FilesMatch "^(composer\.(json|lock)|package(-lock)?\.json|\.env.*|\.git.*|\.updateignore|README\.md|CHANGELOG\.md|VERIFICATION-REPORT\.md|API\.md|INSTALL\.md)$">
+    Require all denied
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteRule ^(config|storage|backups|database|app|\.git|android)(/.*)?$ - [F,L]
+</IfModule>
+
+# ------------------------------------------------------------------ Headers
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    Header unset X-Powered-By
+    Header always unset Server
+</IfModule>
+
+# ----------------------------------------------------------------- Caching
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType text/html "access plus 0 seconds"
+    ExpiresByType application/json "access plus 0 seconds"
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/plain text/xml application/javascript application/json image/svg+xml
+</IfModule>
+
+# ------------------------------------------------------------------- PHP
+
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_value upload_max_filesize 12M
+    php_value post_max_size 16M
+    php_value max_execution_time 120
+</IfModule>
+
+AddDefaultCharset UTF-8
+
+ErrorDocument 404 /index.php
