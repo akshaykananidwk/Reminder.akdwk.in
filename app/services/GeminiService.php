@@ -546,7 +546,16 @@ PROMPT;
         }
     }
 
-    /** Used by the installer and the admin "test parse" button. */
+    /**
+     * Used by the installer and the admin "test parse" button.
+     *
+     * The distinction that matters: a 429 means the key is *valid* but its
+     * quota is exhausted right now. That must never block an installation —
+     * the key will start working when the quota resets, and until then the
+     * built-in parser covers everything.
+     *
+     * @return array{ok: bool, usable: bool, status: int, reason: string, message: string, hint: string}
+     */
     public static function testConnection(string $apiKey, string $model = 'gemini-2.0-flash'): array
     {
         $response = HttpClient::postJson(
@@ -564,11 +573,86 @@ PROMPT;
             $text .= (string) ($part['text'] ?? '');
         }
 
+        if ($response['ok'] && $text !== '') {
+            return [
+                'ok'      => true,
+                'usable'  => true,
+                'status'  => $response['status'],
+                'reason'  => 'ok',
+                'message' => 'Gemini responded: ' . mb_substr(trim($text), 0, 120),
+                'hint'    => '',
+            ];
+        }
+
+        $apiMessage = (string) ($response['json']['error']['message'] ?? '');
+        $apiStatus = (string) ($response['json']['error']['status'] ?? '');
+        $detail = $apiMessage !== '' ? $apiMessage : mb_substr($response['body'] ?: (string) $response['error'], 0, 300);
+
+        // 429 / RESOURCE_EXHAUSTED — the key is fine, the quota is not.
+        if ($response['status'] === 429 || $apiStatus === 'RESOURCE_EXHAUSTED') {
+            return [
+                'ok'      => false,
+                'usable'  => true,
+                'status'  => 429,
+                'reason'  => 'quota',
+                'message' => 'The key is valid, but this Google project has no quota left right now.',
+                'hint'    => 'Free-tier Gemini quota resets each day, and a brand-new key can take a few minutes to activate. '
+                    . 'Save the key and continue — reminders keep working through the built-in parser, and Gemini takes over automatically once quota is available. '
+                    . 'To remove the limit entirely, enable billing on the Google Cloud project behind this key.',
+            ];
+        }
+
+        if (in_array($response['status'], [400, 401], true) || str_contains(strtolower($detail), 'api key not valid')) {
+            return [
+                'ok'      => false,
+                'usable'  => false,
+                'status'  => $response['status'],
+                'reason'  => 'invalid_key',
+                'message' => 'Google rejected this API key.',
+                'hint'    => 'Create a key at aistudio.google.com/apikey and paste it again. Copy the whole key with no spaces.',
+            ];
+        }
+
+        if ($response['status'] === 403) {
+            return [
+                'ok'      => false,
+                'usable'  => false,
+                'status'  => 403,
+                'reason'  => 'forbidden',
+                'message' => 'The key exists but is not allowed to call this model.',
+                'hint'    => 'Check that the Generative Language API is enabled on the project, and that the key has no HTTP-referrer or IP restriction blocking your server.',
+            ];
+        }
+
+        if ($response['status'] === 404) {
+            return [
+                'ok'      => false,
+                'usable'  => false,
+                'status'  => 404,
+                'reason'  => 'bad_model',
+                'message' => 'The model "' . $model . '" is not available for this key.',
+                'hint'    => 'Choose a different model — gemini-2.0-flash works on most keys.',
+            ];
+        }
+
+        if ($response['status'] === 0) {
+            return [
+                'ok'      => false,
+                'usable'  => false,
+                'status'  => 0,
+                'reason'  => 'network',
+                'message' => 'The server could not reach Google.',
+                'hint'    => 'Outbound HTTPS may be blocked, or cURL has no CA bundle. Test with: curl -I https://generativelanguage.googleapis.com',
+            ];
+        }
+
         return [
-            'ok'      => $response['ok'] && $text !== '',
-            'message' => $response['ok']
-                ? 'Gemini responded: ' . mb_substr(trim($text), 0, 120)
-                : 'HTTP ' . $response['status'] . ' — ' . mb_substr($response['body'] ?: (string) $response['error'], 0, 300),
+            'ok'      => false,
+            'usable'  => false,
+            'status'  => $response['status'],
+            'reason'  => 'error',
+            'message' => 'HTTP ' . $response['status'] . ' — ' . mb_substr($detail, 0, 300),
+            'hint'    => '',
         ];
     }
 }

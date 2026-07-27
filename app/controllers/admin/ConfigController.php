@@ -217,16 +217,19 @@ class ConfigController extends Controller
 
         $connection = GeminiService::testConnection($apiKey, (string) $settings->get('gemini_model', 'gemini-2.0-flash'));
 
-        if (!$connection['ok']) {
-            Session::flash('error', $connection['message']);
-            Response::back(url('/admin/ai'));
-        }
-
-        // Parse a real sentence so the admin sees the actual structured output.
+        // Parse the sentence regardless, so the admin always sees what the
+        // built-in parser would do — that is what runs whenever Gemini cannot.
         $parsed = \App\Services\FallbackParser::parse($text, $fakeUser);
+        $preview = json_encode($parsed['items'][0] ?? [], JSON_UNESCAPED_UNICODE);
 
-        Session::flash('success', 'Gemini reachable. Fallback parser preview: '
-            . json_encode($parsed['items'][0] ?? [], JSON_UNESCAPED_UNICODE));
+        if ($connection['ok']) {
+            Session::flash('success', 'Gemini reachable. Built-in parser preview: ' . $preview);
+        } elseif (!empty($connection['usable'])) {
+            // Quota exhausted: the key is valid, so this is a warning, not a failure.
+            Session::flash('warning', $connection['message'] . ' ' . $connection['hint']);
+        } else {
+            Session::flash('error', trim($connection['message'] . ' ' . $connection['hint']));
+        }
 
         Response::redirect(url('/admin/ai'));
     }

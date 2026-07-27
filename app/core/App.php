@@ -166,11 +166,45 @@ final class App
             exit(1);
         });
 
+        // Only genuine errors become exceptions. Warnings, notices and
+        // deprecations are logged and execution continues — on a shared host a
+        // single deprecation must never turn the whole page into a 500.
         set_error_handler(function (int $severity, string $message, string $file = '', int $line = 0): bool {
             if (!(error_reporting() & $severity)) {
                 return false;
             }
-            throw new \ErrorException($message, 0, $severity, $file, $line);
+
+            $fatal = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
+
+            if (($severity & $fatal) !== 0) {
+                throw new \ErrorException($message, 0, $severity, $file, $line);
+            }
+
+            Logger::write('php', self::severityName($severity), $message, ['file' => $file, 'line' => $line]);
+
+            // Returning false also lets PHP's own logging record it.
+            return true;
         });
+
+        // Catch fatals that bypass the exception handler (memory, timeout).
+        register_shutdown_function(function (): void {
+            $error = error_get_last();
+
+            if ($error === null || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+                return;
+            }
+
+            Logger::write('php', 'fatal', $error['message'], ['file' => $error['file'], 'line' => $error['line']]);
+        });
+    }
+
+    private static function severityName(int $severity): string
+    {
+        return match ($severity) {
+            E_WARNING, E_USER_WARNING, E_CORE_WARNING, E_COMPILE_WARNING => 'warning',
+            E_NOTICE, E_USER_NOTICE => 'notice',
+            E_DEPRECATED, E_USER_DEPRECATED => 'deprecated',
+            default => 'info',
+        };
     }
 }

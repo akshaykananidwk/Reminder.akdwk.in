@@ -18,8 +18,55 @@ use App\Services\BackupService;
 use App\Services\GeminiService;
 use App\Services\UpdateService;
 
+/*
+ * During installation a generic "something went wrong" page is useless — the
+ * whole point of this screen is to tell you what to fix. Replace the app's
+ * production error page with a readable diagnostic.
+ */
+set_exception_handler(static function (Throwable $e): void {
+    // Drop any half-rendered page so the diagnostic is all that shows.
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+
+    if (!headers_sent()) {
+        http_response_code(500);
+    }
+
+    $log = dirname(__DIR__) . '/storage/logs/php-' . date('Y-m-d') . '.log';
+
+    render_shell('Installer error', '
+        <div class="card">
+            <h2>⚠️ The installer hit an error</h2>
+            <p>This is the real message — please send it to support if it is not obvious:</p>
+            <pre class="code">' . htmlspecialchars(
+                get_class($e) . ': ' . $e->getMessage()
+                . "\n\nat " . $e->getFile() . ':' . $e->getLine()
+                . "\n\n" . $e->getTraceAsString(),
+                ENT_QUOTES,
+                'UTF-8'
+            ) . '</pre>
+            <p class="hint">PHP ' . PHP_VERSION . ' · full log: <code>' . htmlspecialchars($log, ENT_QUOTES, 'UTF-8') . '</code></p>
+            <p><a class="btn" href="?step=1">← Back to the installer</a></p>
+        </div>');
+
+    exit(1);
+});
+
 session_name('KRINSTALL');
-session_start();
+
+// A broken session save path is a classic shared-hosting failure; fall back to
+// a directory we know is writable rather than dying on step 1.
+if (!@session_start()) {
+    $sessionDir = dirname(__DIR__) . '/storage/temp/sessions';
+
+    if (!is_dir($sessionDir)) {
+        @mkdir($sessionDir, 0770, true);
+    }
+
+    @session_save_path($sessionDir);
+    @session_start();
+}
 
 $root = dirname(__DIR__);
 $configFile = $root . '/config/config.php';
@@ -315,7 +362,7 @@ switch ($step) {
             }
 
             $test = GeminiService::testConnection($apiKey, $model);
-            $testResult = ['ok' => $test['ok'], 'response' => $test['message']];
+            $testResult = $test;
 
             if ($test['ok']) {
                 $settings->set('gemini_enabled', '1', false, 'ai');
@@ -323,7 +370,16 @@ switch ($step) {
                 exit;
             }
 
-            $errors[] = 'Gemini test failed: ' . $test['message'];
+            // A quota/rate-limit answer proves the key is real. Keep it, keep
+            // Gemini switched on, and let the installation continue — blocking
+            // here would be wrong, because nothing is actually misconfigured.
+            if (!empty($test['usable'])) {
+                $settings->set('gemini_enabled', '1', false, 'ai');
+                $notices[] = $test['message'] . ' The key has been saved and Gemini stays enabled.';
+            } else {
+                $settings->set('gemini_enabled', '0', false, 'ai');
+                $errors[] = $test['message'];
+            }
         }
         break;
 
@@ -352,11 +408,19 @@ switch ($step) {
             // first nightly run.
             BackupService::directory();
 
-            @file_put_contents($lockFile, json_encode([
+            $written = @file_put_contents($lockFile, json_encode([
                 'installed_at' => gmdate('c'),
                 'version'      => App::i()->config('app.version', '1.0.0'),
                 'php'          => PHP_VERSION,
             ], JSON_PRETTY_PRINT));
+
+            // Without this file the app considers itself uninstalled and sends
+            // every visitor straight back here — so a failure must be loud.
+            if ($written === false) {
+                $errors[] = 'Could not write config/install.lock. Until that file exists the site keeps '
+                    . 'redirecting to the installer. Fix the permission and reload this page:  '
+                    . 'chown -R www:www ' . $root . '/config  &&  chmod 755 ' . $root . '/config';
+            }
 
             App::i()->settings()->set('installed_at', gmdate('Y-m-d H:i:s'));
         }
@@ -396,6 +460,20 @@ ob_start();
         <?php endforeach; ?>
 
         <?php if ($step === 1): ?>
+            <?php if (is_file($configFile)): ?>
+                <div class="callout">
+                    <strong>Configuration already exists.</strong>
+                    The database is set up but <code>config/install.lock</code> is missing, which is why the
+                    site keeps returning here. Jump straight to the step you need:
+                    <p style="margin-top:10px">
+                        <a class="btn" href="?step=8">Finish &amp; unlock the site →</a>
+                        <a class="btn ghost" href="?step=5">WhatsApp</a>
+                        <a class="btn ghost" href="?step=6">Gemini</a>
+                        <a class="btn ghost" href="?step=7">Cron</a>
+                    </p>
+                </div>
+            <?php endif; ?>
+
             <h1>Server requirements</h1>
             <p class="lead">Everything in red must be fixed before Krishna Reminder can run.</p>
             <table class="checks">
@@ -524,13 +602,32 @@ ob_start();
                     </select>
                 </label>
                 <?php if ($testResult !== null): ?>
-                    <div class="alert <?= $testResult['ok'] ? 'ok' : 'error' ?>">
-                        <code><?= htmlspecialchars(substr((string) $testResult['response'], 0, 300), ENT_QUOTES, 'UTF-8') ?></code>
+                    <div class="alert <?= $testResult['ok'] ? 'ok' : (!empty($testResult['usable']) ? 'warn' : 'error') ?>">
+                        <strong><?= htmlspecialchars((string) ($testResult['message'] ?? ''), ENT_QUOTES, 'UTF-8') ?></strong>
+
+                        <?php if (!empty($testResult['hint'])): ?>
+                            <div style="margin-top:8px;font-size:13.5px">
+                                <?= htmlspecialchars((string) $testResult['hint'], ENT_QUOTES, 'UTF-8') ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
-                <button class="btn" type="submit">Test key &amp; continue →</button>
-                <button class="btn ghost" type="submit" name="skip" value="1">Skip for now</button>
+
+                <?php if ($testResult !== null && !empty($testResult['usable']) && empty($testResult['ok'])): ?>
+                    <button class="btn" type="submit" name="skip" value="1">Key saved — continue →</button>
+                    <button class="btn ghost" type="submit">Test again</button>
+                <?php else: ?>
+                    <button class="btn" type="submit">Test key &amp; continue →</button>
+                    <button class="btn ghost" type="submit" name="skip" value="1">Skip for now</button>
+                <?php endif; ?>
             </form>
+
+            <div class="callout">
+                <strong>Gemini is optional.</strong> Krishna Reminder ships with a Gujarati / Hindi / English
+                parser that runs on the server with no API at all — it understands કાલે, પરમ દિવસે,
+                દર સોમવારે, દર મહિને 5 તારીખે, 15 મિનિટ પછી and amounts like 5 હજાર.
+                Gemini simply widens what can be understood, and takes over the moment a working key is available.
+            </div>
 
         <?php elseif ($step === 7): ?>
             <?php
@@ -570,12 +667,23 @@ ob_start();
             </form>
 
         <?php else: ?>
-            <h1>🎉 Installation complete</h1>
-            <p class="lead">Krishna Reminder is live. 🙏 જય શ્રી કૃષ્ણ</p>
-            <div class="alert error">
-                <strong>Do this now:</strong> delete the <code>/install</code> folder from your server.
-                The installer is already locked by <code>config/install.lock</code>, but removing it is cleaner.
-            </div>
+            <?php $locked = is_file($lockFile); ?>
+
+            <h1><?= $locked ? '🎉 Installation complete' : '⚠️ Almost there' ?></h1>
+
+            <?php if ($locked): ?>
+                <p class="lead">Krishna Reminder is live. 🙏 જય શ્રી કૃષ્ણ</p>
+                <div class="alert error">
+                    <strong>Do this now:</strong> delete the <code>/install</code> folder from your server.
+                    The installer is already locked by <code>config/install.lock</code>, but removing it is cleaner.
+                </div>
+            <?php else: ?>
+                <p class="lead">
+                    Everything is configured, but the lock file could not be written — so the site will keep
+                    sending visitors back to this installer. Fix the permission shown above, then
+                    <a href="?step=8">reload this page</a>.
+                </p>
+            <?php endif; ?>
             <ul class="next">
                 <li><a href="<?= htmlspecialchars(App::i()->url('/admin/login'), ENT_QUOTES, 'UTF-8') ?>">Open the admin panel →</a></li>
                 <li><a href="<?= htmlspecialchars(App::i()->url('/'), ENT_QUOTES, 'UTF-8') ?>">Open the website →</a></li>
@@ -797,6 +905,7 @@ h3{margin:22px 0 8px;font-size:16px}
 .alert{padding:13px 16px;border-radius:12px;margin-bottom:16px;font-size:14.5px}
 .alert.error{background:#fdecea;color:#8c231a;border:1px solid #f5c6c2}
 .alert.ok{background:#e8f6ef;color:#12603c;border:1px solid #b6e2cd}
+.alert.warn{background:#fdf6e3;color:#7a5a10;border:1px solid #f0dca4}
 .checks{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(20,30,60,.08);margin-bottom:20px}
 .checks td{padding:11px 15px;border-bottom:1px solid var(--line);font-size:14.5px}
 .checks tr:last-child td{border-bottom:0}
