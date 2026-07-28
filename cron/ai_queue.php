@@ -16,6 +16,7 @@ use App\Core\Logger;
 use App\Services\CronService;
 use App\Services\GeminiService;
 use App\Services\InboundProcessor;
+use App\Services\TelegramService;
 use App\Services\WhatsAppService;
 
 if (!App::i()->isInstalled()) {
@@ -77,15 +78,39 @@ try {
                 ]);
             }
 
-            // Send the confirmation back on WhatsApp.
-            if ($outcome['reply'] !== '' && $job['source'] === 'whatsapp') {
-                WhatsAppService::queue(
-                    (string) $user['phone'],
-                    $outcome['reply'],
-                    (int) $user['id'],
-                    null,
-                    3
-                );
+            /*
+             * Answer on the channel the message arrived on.
+             *
+             * This used to be `source === 'whatsapp'` only, so a Telegram
+             * message created the reminder and then got no reply at all —
+             * nothing to confirm what was understood, or even that anything had
+             * happened. Replying on the wrong channel would be just as bad: the
+             * user is sitting in Telegram, not staring at WhatsApp.
+             */
+            if ($outcome['reply'] !== '') {
+                if ((string) $job['source'] === 'telegram') {
+                    // Sent straight out rather than queued: a chat expects an
+                    // answer now, and Telegram has no rate limit to respect.
+                    // If it fails, fall back to the queue so it is not lost.
+                    $sent = TelegramService::sendToUser((int) $user['id'], $outcome['reply']);
+
+                    if (!$sent['ok']) {
+                        Logger::warn('Telegram reply failed, queueing instead', [
+                            'user_id' => (int) $user['id'],
+                            'error'   => $sent['response'],
+                        ], 'telegram');
+
+                        WhatsAppService::queueTelegram((int) $user['id'], $outcome['reply'], null, 3);
+                    }
+                } else {
+                    WhatsAppService::queue(
+                        (string) $user['phone'],
+                        $outcome['reply'],
+                        (int) $user['id'],
+                        null,
+                        3
+                    );
+                }
             }
 
             $db->update('ai_queue', [

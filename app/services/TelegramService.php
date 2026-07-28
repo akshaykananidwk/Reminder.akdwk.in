@@ -463,12 +463,33 @@ class TelegramService
 
         $ok = $result['ok'] && ($result['json']['ok'] ?? false) === true;
 
+        if ($ok) {
+            self::registerCommands();
+        }
+
         return [
             'ok'      => $ok,
             'message' => $ok
-                ? 'Webhook registered with Telegram.'
+                ? 'Webhook registered with Telegram, and the command menu published.'
                 : self::explain($result['status'], $result['json']),
         ];
+    }
+
+    /**
+     * Publish the command list so Telegram shows a menu button beside the text
+     * box, instead of the user having to remember what the bot understands.
+     */
+    public static function registerCommands(): bool
+    {
+        $result = self::call('setMyCommands', [
+            'commands' => [
+                ['command' => 'today', 'description' => 'What is due today'],
+                ['command' => 'list', 'description' => 'Upcoming reminders'],
+                ['command' => 'help', 'description' => 'Everything I understand'],
+            ],
+        ]);
+
+        return $result['ok'] && ($result['json']['ok'] ?? false) === true;
     }
 
     public static function deleteWebhook(): array

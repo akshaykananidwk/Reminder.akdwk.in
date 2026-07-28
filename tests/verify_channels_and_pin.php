@@ -366,6 +366,40 @@ assertThat('the drawer opens and closes', str_contains($js, "action === 'toggle-
 assertThat('Escape closes it', str_contains($js, "event.key !== 'Escape'"));
 assertThat('the page behind it cannot scroll', str_contains($js, 'nav-locked'));
 
+echo "\n=== 8. A reply goes back on the channel it came from ===\n\n";
+
+$aiCron = (string) file_get_contents(__DIR__ . '/../cron/ai_queue.php');
+
+assertThat('a Telegram message is answered on Telegram',
+    str_contains($aiCron, "\$job['source'] === 'telegram'")
+    && str_contains($aiCron, 'TelegramService::sendToUser'));
+
+assertThat('the reply is no longer WhatsApp-only',
+    !preg_match("/if \\(\\\$outcome\\['reply'\\] !== '' && \\\$job\\['source'\\] === 'whatsapp'\\)/", $aiCron),
+    'that gate meant Telegram users got no confirmation at all');
+
+assertThat('WhatsApp still replies over WhatsApp',
+    str_contains($aiCron, "WhatsAppService::queue("));
+
+assertThat('a failed instant reply falls back to the queue',
+    str_contains($aiCron, 'queueTelegram') && str_contains($aiCron, 'Telegram reply failed'),
+    'a confirmation must not be silently lost');
+
+$hook2 = (string) file_get_contents(__DIR__ . '/../api/tg_webhook.php');
+
+assertThat('/today is answered immediately, not queued',
+    str_contains($hook2, "str_starts_with(\$text, '/')")
+    && str_contains($hook2, 'CommandService::handle'));
+
+assertThat('an unknown slash command is not filed as a reminder',
+    str_contains($hook2, "I don't know that command"));
+
+assertThat('the bot publishes a command menu',
+    str_contains($tgSource, 'setMyCommands'));
+
+assertThat('reminders reach Telegram without waiting for the WhatsApp fallback',
+    str_contains((string) file_get_contents(__DIR__ . '/../app/services/SchedulerService.php'), 'queueTelegram'));
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

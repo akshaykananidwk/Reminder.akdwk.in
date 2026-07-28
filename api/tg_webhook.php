@@ -196,7 +196,56 @@ try {
         exit;
     }
 
-    if (trim($message['text']) === '') {
+    $text = trim($message['text']);
+
+    if ($text === '') {
+        exit;
+    }
+
+    /*
+     * Slash commands are answered here and now, not queued.
+     *
+     * Telegram users expect /today to answer immediately, and these need no AI
+     * — CommandService already understands them in all three languages. Putting
+     * them through the queue would mean waiting up to a minute for the cron,
+     * and burning a Gemini call on a question we can answer for free.
+     */
+    if (str_starts_with($text, '/')) {
+        $command = strtolower(ltrim(strtok($text, ' @') ?: '', '/'));
+
+        $known = [
+            'today'   => 'today',
+            'list'    => 'list',
+            'pending' => 'today',
+            'help'    => 'help',
+            'menu'    => 'help',
+        ];
+
+        if (isset($known[$command])) {
+            \App\Core\Lang::setLocale((string) $user['language']);
+
+            $outcome = \App\Services\CommandService::handle($known[$command], $user);
+            $reply = (string) ($outcome['reply'] ?? '');
+
+            TelegramService::send(
+                $chatId,
+                $reply !== '' ? $reply : 'Nothing to show.'
+            );
+
+            exit;
+        }
+
+        // An unknown slash command is a typo, not a reminder — saying so beats
+        // silently filing "/reminderz" as a task.
+        TelegramService::send(
+            $chatId,
+            "I don't know that command.\n\n"
+            . "/today — what is due today\n"
+            . "/help — everything I understand\n\n"
+            . "Or just tell me in your own words, for example:\n"
+            . "_\"Call the bank tomorrow at 10 am\"_"
+        );
+
         exit;
     }
 

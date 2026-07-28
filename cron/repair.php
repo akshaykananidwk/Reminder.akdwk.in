@@ -191,4 +191,73 @@ try {
     exit(1);
 }
 
+/* ---------------------------------------------------------------- Cron */
+
+echo "\n5. Cron jobs\n";
+
+try {
+    $db = $app->db();
+
+    // Everything outbound goes through these. If they are not running, a
+    // reminder is created and then simply never leaves — which looks from the
+    // outside like the reminder was lost.
+    $expected = [
+        'dispatcher' => 'sends reminders at their due time',
+        'ai_queue'   => 'turns incoming messages into reminders',
+        'wa_queue'   => 'delivers queued WhatsApp / Telegram messages',
+        'recurrence' => 'creates the next occurrence of repeating reminders',
+    ];
+
+    $stale = 0;
+
+    foreach ($expected as $job => $what) {
+        $row = $db->one(
+            'SELECT started_at, status FROM cron_runs WHERE job = ? ORDER BY id DESC LIMIT 1',
+            [$job]
+        );
+
+        if ($row === null) {
+            echo "   ❌ $job — has never run ($what)\n";
+            $stale++;
+            continue;
+        }
+
+        $ageMin = (int) round((time() - (int) strtotime((string) $row['started_at'] . ' UTC')) / 60);
+
+        if ($ageMin > 15) {
+            echo "   ⚠️  $job — last ran {$ageMin} min ago ($what)\n";
+            $stale++;
+        } else {
+            echo "   ✅ $job — {$ageMin} min ago\n";
+        }
+    }
+
+    if ($stale > 0) {
+        echo "\n   Add these to aaPanel → Cron (every 1 minute):\n";
+
+        foreach (array_keys($expected) as $job) {
+            echo "     php " . $app->root() . "/cron/$job.php\n";
+        }
+
+        echo "\n   Without them nothing is ever sent, however correct the rest is.\n";
+    }
+
+    $queued = (int) $db->value('SELECT COUNT(*) FROM wa_outbound_queue WHERE status = "queued"', [], 0);
+    $failedQ = (int) $db->value('SELECT COUNT(*) FROM wa_outbound_queue WHERE status = "failed"', [], 0);
+
+    echo "   queue: $queued waiting, $failedQ failed\n";
+
+    if ($failedQ > 0) {
+        $lastError = $db->value(
+            'SELECT last_error FROM wa_outbound_queue WHERE status = "failed" AND last_error IS NOT NULL ORDER BY id DESC LIMIT 1'
+        );
+
+        if (is_string($lastError) && $lastError !== '') {
+            echo "   most recent failure: " . str_limit($lastError, 140) . "\n";
+        }
+    }
+} catch (\Throwable $e) {
+    echo "   ❌ " . $e->getMessage() . "\n";
+}
+
 echo "\n$line\nDone. Reload the site.\n\n";

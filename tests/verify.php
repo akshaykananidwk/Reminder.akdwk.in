@@ -76,8 +76,27 @@ $cases = [
     ['કાલે 5 હજાર રૂપિયા ઉઘરાણી કરવાની છે', 'amount 5000, type=payment',
         fn ($i, $d) => (int) $i['amount'] === 5000 && $i['type'] === 'payment'],
 
-    ['૨૮ જુલાઈ સવારે ૮ વાગ્યે ટ્રેન', 'Gujarati numerals → 28 July 08:00',
-        fn ($i, $d) => (int) $d->format('j') === 28 && (int) $d->format('n') === 7 && $d->format('H:i') === '08:00'],
+    // The day is deliberately not asserted. "28 July" is in the past for most
+    // of 28 July, and the parser then moves it forward — correctly. Pinning the
+    // day made this case pass or fail depending on the time of day it was run.
+    // What it is here to prove is that Gujarati numerals and month names are
+    // read at all, so it asserts the month and the time.
+    ['૨૮ જુલાઈ સવારે ૮ વાગ્યે ટ્રેન', 'Gujarati numerals → July, 08:00',
+        fn ($i, $d) => (int) $d->format('n') === 7 && $d->format('H:i') === '08:00'],
+
+    // A date that cannot already have passed, so the day itself is checked too.
+    [(static function (): string {
+        $future = (new DateTimeImmutable('+40 days', new DateTimeZone('Asia/Kolkata')));
+        $digits = ['0' => '૦', '1' => '૧', '2' => '૨', '3' => '૩', '4' => '૪',
+                   '5' => '૫', '6' => '૬', '7' => '૭', '8' => '૮', '9' => '૯'];
+        $months = [1 => 'જાન્યુઆરી', 'ફેબ્રુઆરી', 'માર્ચ', 'એપ્રિલ', 'મે', 'જૂન',
+                   'જુલાઈ', 'ઓગસ્ટ', 'સપ્ટેમ્બર', 'ઓક્ટોબર', 'નવેમ્બર', 'ડિસેમ્બર'];
+
+        return strtr($future->format('j'), $digits) . ' ' . $months[(int) $future->format('n')]
+            . ' સવારે ૯ વાગ્યે ડોક્ટર';
+    })(), 'Gujarati numerals → exact future date, 09:00',
+        fn ($i, $d) => $d->format('Y-m-d H:i')
+            === (new DateTimeImmutable('+40 days', new DateTimeZone('Asia/Kolkata')))->format('Y-m-d') . ' 09:00'],
 
     ['3 દિવસ પછી ડોક્ટરને મળવાનું', '~3 days ahead',
         fn ($i, $d) => $d->format('Y-m-d') === (new DateTime('+3 days'))->format('Y-m-d')],
