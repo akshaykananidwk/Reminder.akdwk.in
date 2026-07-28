@@ -27,6 +27,7 @@ use App\Core\Logger;
 use App\Core\RateLimiter;
 use App\Core\Request;
 use App\Services\MetaCloudService;
+use App\Services\MetaWebhookService;
 use App\Services\WhatsAppService;
 
 header('Content-Type: application/json; charset=utf-8');
@@ -78,13 +79,16 @@ if (!is_array($payload) || $payload === []) {
 
 $isCloud = is_array($payload) && MetaCloudService::isCloudPayload($payload);
 $authorised = false;
+$signatureValid = false;
 
 if ($isCloud) {
     // Meta signs the body with the *app secret*, not the verify token and not
-    // our own webhook secret, so it gets its own check.
-    $authorised = MetaCloudService::verifySignature($raw, is_string($signature) ? $signature : null);
+    // our own webhook secret, so it gets its own check — against the connected
+    // account's secret where the account has one of its own.
+    $authorised = MetaWebhookService::verifySignature($raw, is_string($signature) ? $signature : null, $payload);
+    $signatureValid = $authorised;
 
-    if (!$authorised && trim((string) $app->settings()->get('wa_cloud_app_secret', '')) === '') {
+    if (!$authorised && !MetaWebhookService::hasAnySecret()) {
         // No app secret stored yet: accept, but say so loudly rather than
         // pretending the endpoint is authenticated.
         $authorised = true;
@@ -138,6 +142,14 @@ ignore_user_abort(true);
 
 try {
     $payload = is_array($payload) ? $payload : [];
+
+    // Record everything Meta sent before deciding whether any of it is a
+    // message to answer: delivery receipts, prices, template decisions and
+    // quality downgrades all arrive here and exist nowhere else. Storing first
+    // also means a failure below cannot lose the billing record.
+    if ($isCloud) {
+        MetaWebhookService::handle($payload, $signatureValid);
+    }
 
     // Meta nests the message inside entry[].changes[].value.messages[], and
     // sends delivery/read receipts to the same URL. Those carry no message and

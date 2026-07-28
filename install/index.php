@@ -170,6 +170,35 @@ switch ($step) {
                 $seed = (string) file_get_contents($root . '/database/seed.sql');
                 run_sql_script($db, $seed);
 
+                // schema.sql is the original schema; everything added since
+                // lives in database/migrations. Running them here — and
+                // recording them — is what stops a brand-new install from being
+                // *behind* an upgraded one, and stops the first update from
+                // trying to re-apply them.
+                foreach (glob($root . '/database/migrations/*.sql') ?: [] as $migration) {
+                    $sql = (string) file_get_contents($migration);
+
+                    if (trim($sql) === '') {
+                        continue;
+                    }
+
+                    try {
+                        run_sql_script($db, $sql);
+                    } catch (Throwable $e) {
+                        // A migration that is already satisfied by schema.sql is
+                        // not a failed install; record it and carry on.
+                        error_log('Install migration ' . basename($migration) . ': ' . $e->getMessage());
+                    }
+
+                    try {
+                        $db->pdo()->prepare(
+                            'INSERT IGNORE INTO schema_migrations (migration, batch, executed_at) VALUES (?, 1, UTC_TIMESTAMP())'
+                        )->execute([basename($migration)]);
+                    } catch (Throwable) {
+                        // schema_migrations may not exist on a very old schema.
+                    }
+                }
+
                 // Write config so every later step (and the app) can boot.
                 $config = [
                     'APP_NAME'       => 'Krishna Reminder',
