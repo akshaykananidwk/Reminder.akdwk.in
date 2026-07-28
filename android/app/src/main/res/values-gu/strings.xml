@@ -81,4 +81,6 @@
     <string name="server">સર્વર</string>
     <string name="set_server">સર્વરનું સરનામું નાખો</string>
     <string name="server_url">સર્વર URL</string>
+    <string name="perm_fullscreen">પૂરી સ્ક્રીન પર કોલ બતાવો</string>
+    <string name="perm_fullscreen_why">Android 14 થી આ બંધ હોય છે. આના વગર રિમાઇન્ડર ફક્ત શાંત નોટિફિકેશન રહેશે — લોક સ્ક્રીન પર રિંગ નહીં થાય.</string>
 </resources>

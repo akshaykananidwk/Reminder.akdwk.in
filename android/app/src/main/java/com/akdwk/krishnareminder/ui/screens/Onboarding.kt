@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -166,6 +170,22 @@ fun PermissionsScreen(onContinue: () -> Unit) {
     val notificationsOk = remember(refreshKey) { PermissionUtils.hasNotifications(context) }
     val alarmsOk = remember(refreshKey) { PermissionUtils.hasExactAlarms(context) }
     val batteryOk = remember(refreshKey) { PermissionUtils.isIgnoringBatteryOptimizations(context) }
+    val fullScreenOk = remember(refreshKey) { PermissionUtils.hasFullScreenIntent(context) }
+
+    // Re-check when the user comes back from the system settings screen.
+    // Incrementing the key right after startActivity only re-read the state
+    // before they had granted anything, so every row stayed showing its old
+    // answer until the screen was left and reopened.
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshKey++
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Column(
         modifier = Modifier
@@ -189,7 +209,6 @@ fun PermissionsScreen(onContinue: () -> Unit) {
             granted = notificationsOk
         ) {
             context.startActivity(PermissionUtils.notificationSettingsIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            refreshKey++
         }
 
         PermissionRow(
@@ -200,7 +219,21 @@ fun PermissionsScreen(onContinue: () -> Unit) {
             PermissionUtils.exactAlarmSettingsIntent(context)?.let {
                 context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
-            refreshKey++
+        }
+
+        // Android 14 stopped granting this at install. Without it the reminder
+        // is a silent notification instead of a ringing call — which is the
+        // entire product.
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            PermissionRow(
+                title = stringResource(R.string.perm_fullscreen),
+                why = stringResource(R.string.perm_fullscreen_why),
+                granted = fullScreenOk
+            ) {
+                PermissionUtils.fullScreenIntentSettingsIntent(context)?.let {
+                    context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
         }
 
         PermissionRow(
@@ -209,7 +242,6 @@ fun PermissionsScreen(onContinue: () -> Unit) {
             granted = batteryOk
         ) {
             context.startActivity(PermissionUtils.batteryOptimizationIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            refreshKey++
         }
 
         if (PermissionUtils.needsAutostartGuidance()) {
@@ -221,8 +253,17 @@ fun PermissionsScreen(onContinue: () -> Unit) {
                 PermissionUtils.autostartIntent(context)?.let {
                     context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
-                refreshKey++
             }
+
+            // The deep link can only reach the right area of Settings; the
+            // toggle is several taps further in and named differently on every
+            // ROM, so the exact wording for this phone is spelled out.
+            Text(
+                PermissionUtils.autostartInstructions(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 8.dp)
+            )
         }
 
         Spacer(Modifier.height(24.dp))

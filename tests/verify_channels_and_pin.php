@@ -513,6 +513,67 @@ assertThat('health reports whether the header arrived',
     str_contains($apiIndex, "'auth_header_received'"),
     'so this is checkable with curl instead of guessed at');
 
+echo "\n=== 11. Android 14+ permissions (Samsung S25 and similar) ===\n\n";
+
+$androidDir = __DIR__ . '/../android/app/src/main/java/com/akdwk/krishnareminder/';
+$perms = (string) file_get_contents($androidDir . 'util/PermissionUtils.kt');
+$onboarding = (string) file_get_contents($androidDir . 'ui/screens/Onboarding.kt');
+$homeKt = (string) file_get_contents($androidDir . 'ui/screens/HomeScreen.kt');
+$manifest = (string) file_get_contents(__DIR__ . '/../android/app/src/main/AndroidManifest.xml');
+
+/*
+ * Android 14 stopped granting USE_FULL_SCREEN_INTENT at install. Declaring it
+ * in the manifest is no longer enough — it must be requested at runtime, and an
+ * app that never asks simply never rings, with nothing logged to explain it.
+ */
+assertThat('the app can tell whether it may ring full-screen',
+    str_contains($perms, 'canUseFullScreenIntent'));
+
+assertThat('and can send the user to grant it',
+    str_contains($perms, 'ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT'));
+
+assertThat('it counts as a critical permission',
+    (bool) preg_match('/allCriticalGranted.*?hasFullScreenIntent/s', $perms),
+    'otherwise the warning banner never mentions it');
+
+assertThat('the permission screen offers it', str_contains($onboarding, 'perm_fullscreen'));
+
+assertThat('only where it applies',
+    str_contains($onboarding, 'Build.VERSION.SDK_INT >= 34'),
+    'the setting does not exist before Android 14');
+
+// Samsung puts apps to sleep on its own; it was absent from the OEM list.
+assertThat('Samsung battery settings are deep-linked',
+    str_contains($perms, 'com.samsung.android.lool'));
+
+assertThat('Samsung gets its own wording',
+    str_contains($perms, 'Deep sleeping apps'),
+    'the toggle is named differently on every ROM');
+
+// remember {} with no key is read once and kept forever.
+foreach (['permission screen' => $onboarding, 'home banner' => $homeKt] as $where => $src) {
+    assertThat($where . ' re-checks permissions on resume',
+        str_contains($src, 'Lifecycle.Event.ON_RESUME'),
+        'a one-off check never clears after the user grants');
+}
+
+assertThat('the home banner is keyed, not remembered once',
+    !preg_match('/permissionsOk = remember \{/', $homeKt));
+
+foreach ([
+    'POST_NOTIFICATIONS',
+    'USE_EXACT_ALARM',
+    'USE_FULL_SCREEN_INTENT',
+    'REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+    'RECEIVE_BOOT_COMPLETED',
+] as $permission) {
+    assertThat('manifest declares ' . $permission, str_contains($manifest, $permission));
+}
+
+assertThat('the foreground service declares a type',
+    str_contains($manifest, 'android:foregroundServiceType'),
+    'Android 14 refuses to start one without it');
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

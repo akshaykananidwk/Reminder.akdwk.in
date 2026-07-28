@@ -81,4 +81,6 @@
     <string name="server">सर्वर</string>
     <string name="set_server">सर्वर का पता डालें</string>
     <string name="server_url">सर्वर URL</string>
+    <string name="perm_fullscreen">पूरी स्क्रीन पर कॉल दिखाएँ</string>
+    <string name="perm_fullscreen_why">Android 14 से यह बंद रहता है। इसके बिना रिमाइंडर सिर्फ़ शांत नोटिफ़िकेशन रहेगा — लॉक स्क्रीन पर रिंग नहीं होगा।</string>
 </resources>
