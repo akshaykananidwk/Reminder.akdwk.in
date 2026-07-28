@@ -1,20 +1,13 @@
 # WhatsApp Cloud API — second provider
 
-Krishna Reminder can send through **two** WhatsApp providers, and both can be
-configured at the same time:
-
-| Provider | What it is | Limits |
-|---|---|---|
-| `bulk` | The existing `bulk.akdwk.in` gateway | None imposed by Meta |
-| `cloud` | Meta's official WhatsApp Cloud API (`graph.facebook.com`) | **24-hour window**, template approval, per-conversation pricing |
-
-**Admin → WhatsApp → Provider** picks which is tried first. Leave *"Fall back to
-the other provider when this one fails"* on and the second one takes over
-automatically when the first is unavailable — which is exactly what is wanted
-while the bulk gateway's session is down.
-
-Nothing about the bulk gateway changed. Turning the Cloud API on does not turn
-it off, and turning the Cloud API off returns you to exactly the old behaviour.
+> **Superseded.** WhatsApp now goes through the official Meta Cloud API and
+> nothing else: `meta_only_mode` defaults to on and the `bulk.akdwk.in`
+> gateway is no longer in the send path. Read
+> [META-WHATSAPP-PLATFORM.md](META-WHATSAPP-PLATFORM.md) instead.
+>
+> This page is kept because everything it says about the 24-hour window,
+> template approval and Meta's error codes is still exactly true — only the
+> "two providers side by side" framing is out of date.
 
 ---
 

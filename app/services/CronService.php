@@ -110,6 +110,7 @@ class CronService
             'morning_brief'  => 30,
             'daily_summary'  => 30,
             'subscriptions'  => 1500,
+            'meta_sync'      => 60,
             'backup'         => 1500,
             'cleanup'        => 10080,
         ];
@@ -170,7 +171,7 @@ class CronService
      */
     public static function status(): array
     {
-        $jobs = ['dispatcher', 'ai_queue', 'wa_queue', 'recurrence', 'google_sync', 'morning_brief', 'daily_summary', 'subscriptions', 'backup', 'cleanup'];
+        $jobs = ['dispatcher', 'ai_queue', 'wa_queue', 'recurrence', 'google_sync', 'meta_sync', 'morning_brief', 'daily_summary', 'subscriptions', 'backup', 'cleanup'];
         $out = [];
 
         foreach ($jobs as $job) {

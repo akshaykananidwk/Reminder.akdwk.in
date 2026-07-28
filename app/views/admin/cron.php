@@ -39,6 +39,7 @@
 */5 * * * * /usr/bin/php <?= e($root) ?>/cron/morning_brief.php >/dev/null 2>&amp;1
 */5 * * * * /usr/bin/php <?= e($root) ?>/cron/daily_summary.php >/dev/null 2>&amp;1
 */15 * * * * /usr/bin/php <?= e($root) ?>/cron/google_sync.php >/dev/null 2>&amp;1
+*/15 * * * * /usr/bin/php <?= e($root) ?>/cron/meta_sync.php >/dev/null 2>&amp;1
 0 * * * * /usr/bin/php <?= e($root) ?>/cron/recurrence.php >/dev/null 2>&amp;1
 0 9 * * * /usr/bin/php <?= e($root) ?>/cron/subscriptions.php >/dev/null 2>&amp;1
 0 3 * * * /usr/bin/php <?= e($root) ?>/cron/backup.php >/dev/null 2>&amp;1

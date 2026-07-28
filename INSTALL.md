@@ -55,6 +55,7 @@ Paste these into aaPanel → Cron (adjust the path and the PHP binary):
 */5 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/morning_brief.php  >/dev/null 2>&1
 */5 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/daily_summary.php  >/dev/null 2>&1
 */15 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/google_sync.php   >/dev/null 2>&1
+*/15 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/meta_sync.php     >/dev/null 2>&1
 0 * * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/recurrence.php    >/dev/null 2>&1
 0 9 * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/subscriptions.php >/dev/null 2>&1
 0 3 * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/backup.php        >/dev/null 2>&1

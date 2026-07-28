@@ -39,7 +39,7 @@ if ($expected === '' || !hash_equals($expected, $given)) {
 }
 
 $allowed = [
-    'dispatcher', 'ai_queue', 'wa_queue', 'recurrence', 'google_sync',
+    'dispatcher', 'ai_queue', 'wa_queue', 'recurrence', 'google_sync', 'meta_sync',
     'morning_brief', 'daily_summary', 'subscriptions', 'backup', 'cleanup',
 ];
 

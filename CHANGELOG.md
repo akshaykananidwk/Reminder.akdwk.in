@@ -6,6 +6,80 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — migration to the official Meta WhatsApp Cloud API
+
+### Changed — WhatsApp now runs entirely on Meta's official API
+
+- **`bulk.akdwk.in` is out of the send path.** `meta_only_mode` defaults to
+  on, so `providerOrder()` returns the Cloud API alone. The old credentials
+  are kept, unreachable, purely so the switch is reversible if a number
+  turns out not to be registered yet.
+- **Embedded Signup** — a business connects its own WhatsApp Business
+  Account from inside this application. The authorisation code is exchanged
+  server-side, the token is encrypted at rest, and the steps everyone
+  forgets are done automatically: webhook subscription, phone number sync,
+  phone registration with the two-step PIN, and template sync. Each step
+  reports its own outcome, because a connection that stored a token but
+  failed to subscribe looks identical to a working one until the first
+  webhook does not arrive.
+- **A pasted System User token is a first-class path**, so nobody has to
+  wait for Meta app review to use the product.
+
+### Added
+
+- **Full send API** — text, image, video, audio, document, sticker,
+  location, contact, template, OTP, reply buttons and list pickers. Every
+  message is recorded in `wa_messages` *before* the wire call, so a message
+  Meta accepted is never invisible to us.
+- **Template manager** — create, validate, submit, edit, sync, clone,
+  import, export, delete. Validation catches what Meta rejects days later
+  without naming the reason: gapped `{{n}}`, a body starting or ending with
+  a variable, a header with two variables, a name with capitals.
+- **Webhook ingestion** — raw events stored before processing, one body
+  split into its independent facts, each deduplicated by its own key.
+  Inbound of every type is kept in full with media ids, reply context and
+  interactive selections. A late `sent` receipt can never drag a message
+  back from `read`.
+- **Billing and pricing** — per-conversation cost by category and day, with
+  an operator-maintained rate card. Meta sends the pricing category, not the
+  price, so the card is seeded at zero and the dashboard says the totals are
+  unknown rather than reporting a month of messaging as free.
+- **Media manager** — uploads keyed by SHA-256 so the same file is never
+  uploaded twice; inbound media downloaded with the bearer token and stored
+  outside the web root.
+- **Conversation dashboard**, **Graph API log** with tokens redacted, and a
+  **webhook event log** showing what was signed and what was processed.
+- **Multi-tenancy** — every Meta-facing row is addressed by a
+  `waba_accounts` row with its own token, numbers, templates, webhooks and
+  billing.
+- `cron/meta_sync.php` — the reconciliation pass for template decisions,
+  quality ratings and webhook events that arrived while the site was down.
+- `tests/verify_meta_platform.php` — 142 assertions, no network, no
+  database.
+- `docs/META-WHATSAPP-PLATFORM.md`.
+
+### Fixed
+
+- **A fresh install was missing every table added since the original
+  schema.** `install/index.php` imported `schema.sql` and `seed.sql` but
+  never ran `database/migrations`, so a brand-new install was *behind* an
+  upgraded one and its first update tried to apply everything at once.
+- **`class="alert warn"` matched no CSS rule**, so several notices rendered
+  as unstyled white panels with no colour. Both spellings now work.
+
+### Security
+
+- A send is never retried on a timeout. The Cloud API has no idempotency
+  key, and cURL cannot distinguish a request Meta never saw from one it
+  accepted slowly — repeating the second delivers the reminder twice.
+  Non-idempotent calls retry only on an explicit 429 or 503.
+- Access tokens and app secrets encrypted with AES-256-GCM; tokens stripped
+  from `wa_api_log` by key name *and* by pattern.
+- Webhook signatures verified against the connected account's app secret,
+  falling back to the platform's.
+
+---
+
 ## [1.0.0] — 2026-07-27
 
 First complete release: web platform, WhatsApp + AI engine, and the Android app.
