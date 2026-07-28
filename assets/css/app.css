@@ -343,6 +343,20 @@ table.data tbody tr:hover { background: var(--surface); }
 .alert-warning { background: var(--gold-100); color: var(--amber); border-color: rgba(242,179,61,.35); }
 .alert-info { background: var(--blue-100); color: var(--blue); border-color: rgba(27,58,107,.15); }
 
+/*
+ * Short forms. Several views write class="alert warn" rather than
+ * "alert alert-warning", which matched nothing at all: the box rendered with a
+ * transparent border and no background, so the text sat on the page looking
+ * like an unstyled white panel. These aliases make both spellings work rather
+ * than leaving a trap for the next person who writes the short one.
+ */
+.alert.success { background: var(--green-100); color: var(--green); border-color: rgba(30,142,90,.2); }
+.alert.error, .alert.danger { background: var(--red-100); color: var(--red); border-color: rgba(192,57,43,.2); }
+.alert.warn, .alert.warning { background: var(--gold-100); color: var(--amber); border-color: rgba(242,179,61,.35); }
+.alert.info { background: var(--blue-100); color: var(--blue); border-color: rgba(27,58,107,.15); }
+
+.badge-warn { background: var(--gold-100); color: var(--amber); }
+
 /* ---------------------------------------------------------------- Toasts */
 
 .toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--bottomnav-h) + 16px); z-index: 9000; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100% - 32px)); }

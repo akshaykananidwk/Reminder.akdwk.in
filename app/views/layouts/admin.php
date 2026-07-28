@@ -19,7 +19,12 @@ $nav = [
 ];
 
 $navConfig = [
-    ['/admin/whatsapp', '💬', __('admin.whatsapp')],
+    ['/admin/meta', '🟢', 'WhatsApp Platform'],
+    ['/admin/meta/templates', '🗂️', 'WA templates'],
+    ['/admin/meta/conversations', '💬', 'WA conversations'],
+    ['/admin/meta/billing', '💰', 'WA billing'],
+    ['/admin/meta/logs', '📡', 'WA API log'],
+    ['/admin/whatsapp', '⚙️', __('admin.whatsapp')],
     ['/admin/telegram', '✈️', 'Telegram'],
     ['/admin/ai', '🤖', __('admin.ai')],
     ['/admin/templates', '📝', __('admin.templates')],

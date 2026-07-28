@@ -449,6 +449,84 @@ assertThat('sends are explicitly marked non-idempotent',
 assertThat('the account is always passed in, never looked up globally',
     str_contains($messageSource, 'public static function send(array $account'));
 
+/* ------------------------------------------------------------------------- */
+echo "\n=== 14. Embedded Signup happens inside our application ===\n\n";
+
+$signupSource = (string) file_get_contents(__DIR__ . '/../app/services/MetaSignupService.php');
+$view = (string) file_get_contents(__DIR__ . '/../app/views/admin/meta.php');
+
+assertThat('the code is exchanged for a token server-side',
+    str_contains($signupSource, "MetaGraph::get('oauth/access_token'"));
+assertThat('the app secret never reaches the browser',
+    !str_contains($view, 'meta_app_secret') || !str_contains($view, 'json_encode($browser[\'secret\']'));
+assertThat('only the app id and config id are rendered into the page',
+    str_contains($signupSource, 'Deliberately contains no secret'));
+assertThat('the WABA is discovered from granular_scopes when the dialog did not report it',
+    str_contains($signupSource, 'granular_scopes'));
+assertThat('webhook subscription is part of connecting, not a manual step',
+    str_contains($signupSource, 'WabaAccountService::subscribeWebhook'));
+assertThat('phone registration is part of connecting',
+    str_contains($signupSource, 'WabaAccountService::registerPhone'));
+assertThat('a skipped registration is reported, not hidden',
+    str_contains($signupSource, '133010'));
+assertThat('every step reports its own outcome',
+    str_contains($signupSource, "'steps' => \$steps"));
+assertThat('a pasted System User token is a first-class path',
+    str_contains($signupSource, 'function connectWithToken'));
+assertThat('the browser only accepts postMessage from Facebook',
+    str_contains($view, "event.origin !== 'https://www.facebook.com'"));
+
+$routes = (string) file_get_contents(__DIR__ . '/../app/routes.php');
+
+foreach ([
+    '/meta', '/meta/app', '/meta/connect', '/meta/connect-token', '/meta/subscribe',
+    '/meta/templates', '/meta/templates/submit', '/meta/templates/sync',
+    '/meta/conversations', '/meta/billing', '/meta/rates', '/meta/logs',
+] as $route) {
+    assertThat("route $route is registered", str_contains($routes, "'" . $route . "'"));
+}
+
+assertThat('every state-changing Meta route is CSRF protected', (function (string $routes): bool {
+    preg_match_all("/\\\$r->post\('(\/meta[^']*)'[^\n]*/", $routes, $matches);
+
+    foreach ($matches[0] as $line) {
+        if (!str_contains($line, "'csrf'")) {
+            return false;
+        }
+    }
+
+    return $matches[1] !== [];
+})($routes));
+
+$controller = (string) file_get_contents(__DIR__ . '/../app/controllers/admin/MetaController.php');
+
+assertThat('every admin page requires an admin', substr_count($controller, 'requireAdmin()') >= 15);
+assertThat('the account is taken from the request, never implied by session state',
+    str_contains($controller, 'from the query string, never implied'));
+assertThat('disconnecting keeps the history',
+    str_contains($controller, "'status'       => 'disconnected'")
+    && !str_contains($controller, "delete('waba_accounts'"));
+
+/* ------------------------------------------------------------------------- */
+echo "\n=== 15. The unstyled-alert trap is closed ===\n\n";
+
+$css = (string) file_get_contents(__DIR__ . '/../assets/css/app.css');
+
+// Several views write class="alert warn", which matched no rule at all — the
+// box rendered as an unstyled white panel, which is exactly the complaint that
+// started this work.
+foreach (['success', 'danger', 'warn', 'info'] as $variant) {
+    assertThat(".alert.$variant is styled", (bool) preg_match('/\.alert\.[a-z, .]*\b' . $variant . '\b/', $css));
+}
+
+$shortForms = 0;
+
+foreach (glob(__DIR__ . '/../app/views/**/*.php') ?: [] as $file) {
+    $shortForms += preg_match_all('/class="alert (success|danger|warn|error|info)/', (string) file_get_contents($file));
+}
+
+assertThat('the short form is actually used, so the aliases matter', $shortForms > 0, (string) $shortForms . ' uses');
+
 echo "\n" . str_repeat('-', 80) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

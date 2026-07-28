@@ -161,6 +161,29 @@ $router->group('/admin', ['admin'], function ($r): void {
     $r->post('/whatsapp/test-cloud', ['Admin\ConfigController', 'testCloud'], ['csrf']);
     $r->post('/lists/delete', ['Admin\ConfigController', 'deleteRow'], ['csrf']);
     $r->post('/lists/clear', ['Admin\ConfigController', 'clearList'], ['csrf']);
+    // WhatsApp Business Platform (official Meta Cloud API)
+    $r->get('/meta', ['Admin\MetaController', 'index']);
+    $r->post('/meta/app', ['Admin\MetaController', 'saveApp'], ['csrf']);
+    $r->post('/meta/connect', ['Admin\MetaController', 'connect'], ['csrf']);
+    $r->post('/meta/connect-token', ['Admin\MetaController', 'connectToken'], ['csrf']);
+    $r->post('/meta/subscribe', ['Admin\MetaController', 'subscribe'], ['csrf']);
+    $r->post('/meta/sync-phones', ['Admin\MetaController', 'syncPhones'], ['csrf']);
+    $r->post('/meta/register-phone', ['Admin\MetaController', 'registerPhone'], ['csrf']);
+    $r->post('/meta/health', ['Admin\MetaController', 'health'], ['csrf']);
+    $r->post('/meta/disconnect', ['Admin\MetaController', 'disconnect'], ['csrf']);
+    $r->get('/meta/templates', ['Admin\MetaController', 'templates']);
+    $r->post('/meta/templates', ['Admin\MetaController', 'saveTemplate'], ['csrf']);
+    $r->post('/meta/templates/submit', ['Admin\MetaController', 'submitTemplate'], ['csrf']);
+    $r->post('/meta/templates/sync', ['Admin\MetaController', 'syncTemplates'], ['csrf']);
+    $r->post('/meta/templates/clone', ['Admin\MetaController', 'cloneTemplate'], ['csrf']);
+    $r->post('/meta/templates/delete', ['Admin\MetaController', 'deleteTemplate'], ['csrf']);
+    $r->get('/meta/templates/export', ['Admin\MetaController', 'exportTemplates']);
+    $r->post('/meta/templates/import', ['Admin\MetaController', 'importTemplates'], ['csrf']);
+    $r->get('/meta/conversations', ['Admin\MetaController', 'conversations']);
+    $r->get('/meta/billing', ['Admin\MetaController', 'billing']);
+    $r->post('/meta/rates', ['Admin\MetaController', 'saveRates'], ['csrf']);
+    $r->get('/meta/logs', ['Admin\MetaController', 'logs']);
+
     $r->get('/telegram', ['Admin\ConfigController', 'telegram']);
     $r->post('/telegram', ['Admin\ConfigController', 'saveTelegram'], ['csrf']);
     $r->post('/telegram/test', ['Admin\ConfigController', 'testTelegram'], ['csrf']);
