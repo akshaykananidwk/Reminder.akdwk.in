@@ -64,8 +64,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
             val result = repo.sync(force)
 
-            if (result.isFailure) {
-                _message.value = result.exceptionOrNull()?.message
+            // Always report the outcome, success included. A sync that returns
+            // nothing looks identical to a sync that failed — both leave an
+            // empty list — so the difference has to be said out loud.
+            _message.value = if (result.isFailure) {
+                "⚠️ Sync failed: " + (result.exceptionOrNull()?.message ?: "unknown error")
+            } else {
+                val count = result.getOrNull() ?: 0
+
+                if (count > 0) {
+                    null
+                } else {
+                    "Synced as " + prefs.phone + " — the server returned no reminders for this account."
+                }
             }
 
             repo.refreshPayments()
@@ -136,6 +147,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun consumeMessage() {
+        _message.value = null
+    }
+
+    fun clearMessage() {
         _message.value = null
     }
 }

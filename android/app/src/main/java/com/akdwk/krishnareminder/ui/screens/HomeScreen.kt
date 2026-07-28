@@ -57,6 +57,7 @@ fun HomeScreen(
     val upcoming by viewModel.upcoming.collectAsState()
     val pendingSync by viewModel.pendingSyncCount.collectAsState()
     val syncing by viewModel.syncing.collectAsState()
+    val syncMessage by viewModel.message.collectAsState()
 
     var quickText by remember { mutableStateOf(initialQuickAdd) }
     var adding by remember { mutableStateOf(false) }
@@ -111,6 +112,31 @@ fun HomeScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+
+        // What the last sync actually did. Without this a failed sync looks
+        // exactly like an empty account: the list is blank and nothing says why.
+        syncMessage?.let { text ->
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        TextButton(onClick = { viewModel.clearMessage() }) { Text("✕") }
+                    }
+                }
             }
         }
 

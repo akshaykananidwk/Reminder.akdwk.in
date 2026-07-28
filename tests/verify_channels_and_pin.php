@@ -400,6 +400,63 @@ assertThat('the bot publishes a command menu',
 assertThat('reminders reach Telegram without waiting for the WhatsApp fallback',
     str_contains((string) file_get_contents(__DIR__ . '/../app/services/SchedulerService.php'), 'queueTelegram'));
 
+echo "\n=== 9. The Android API interface is one Retrofit can accept ===\n\n";
+
+$apiService = (string) file_get_contents(
+    __DIR__ . '/../android/app/src/main/java/com/akdwk/krishnareminder/data/api/ApiService.kt'
+);
+
+/*
+ * Kotlin compiles Map<String, Any?> to Java's Map<String, ?>, because Map's
+ * value type is declared `out`. Retrofit refuses a wildcard in a @Body and
+ * throws the moment the method is first called:
+ *
+ *   Parameter type must not include a type variable or wildcard:
+ *   java.util.Map<java.lang.String, ?> (parameter #1)
+ *
+ * It compiles cleanly, so only a real phone finds it. Every write in the app
+ * — add, edit, quick-add, done/snooze, pay, offline sync push — was dead.
+ */
+preg_match_all('/@Body\s+\w+:\s*Map<String,\s*([^>]+)>/', $apiService, $bodies);
+
+foreach ($bodies[1] as $valueType) {
+    $valueType = trim($valueType);
+
+    // A final type such as String emits no wildcard and is safe as-is.
+    $safe = $valueType === 'String'
+        || str_contains($valueType, '@JvmSuppressWildcards');
+
+    assertThat('@Body Map value type is wildcard-free: ' . $valueType, $safe,
+        'Retrofit rejects Map<String, ?> at call time');
+}
+
+assertThat('at least one @Body map is checked', $bodies[1] !== []);
+
+assertThat('no bare Any? survives in a @Body map',
+    !preg_match('/@Body\s+\w+:\s*Map<String,\s*Any\??>/', $apiService));
+
+$viewModel = (string) file_get_contents(
+    __DIR__ . '/../android/app/src/main/java/com/akdwk/krishnareminder/ui/AppViewModel.kt'
+);
+
+$home = (string) file_get_contents(
+    __DIR__ . '/../android/app/src/main/java/com/akdwk/krishnareminder/ui/screens/HomeScreen.kt'
+);
+
+assertThat('the home screen actually displays the sync message',
+    str_contains($home, 'viewModel.message.collectAsState()')
+    && str_contains($home, 'syncMessage?.let'),
+    'it was being set and never shown, so every failure was invisible');
+
+assertThat('a sync that returns nothing says so',
+    str_contains($viewModel, 'the server returned no reminders'),
+    'an empty list otherwise looks the same as a failed sync');
+
+assertThat('a failed sync is labelled as a failure',
+    str_contains($viewModel, 'Sync failed'));
+
+assertThat('the message can be dismissed', str_contains($viewModel, 'fun clearMessage'));
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

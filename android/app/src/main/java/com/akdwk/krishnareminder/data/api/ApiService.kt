@@ -12,6 +12,19 @@ import retrofit2.http.Query
 /**
  * Krishna Reminder mobile API (v1).
  * Base URL is per-install so a self-hosted server can be pointed at.
+ *
+ * Every `@Body` map of `Any?` needs @JvmSuppressWildcards. Kotlin compiles
+ * `Map<String, Any?>` to Java's `Map<String, ?>`, because Map's value type is
+ * declared `out`. Retrofit refuses a wildcard in a body parameter and throws at
+ * the moment the method is first called:
+ *
+ *   Parameter type must not include a type variable or wildcard:
+ *   java.util.Map<java.lang.String, ?> (parameter #1) for method createReminder
+ *
+ * It compiles cleanly, so nothing catches it until the button is pressed on a
+ * real phone. Maps of `String` are unaffected — String is final, so Kotlin
+ * emits no wildcard, which is why signing in kept working while every write
+ * failed.
  */
 interface ApiService {
 
@@ -54,18 +67,18 @@ interface ApiService {
 
     @POST("api/v1/reminders")
     suspend fun createReminder(
-        @Body body: Map<String, Any?>,
+        @Body body: Map<String, @JvmSuppressWildcards Any?>,
         @Header("Idempotency-Key") idempotencyKey: String
     ): Response<ApiEnvelope<ReminderDto>>
 
     @POST("api/v1/reminders/{id}")
     suspend fun updateReminder(
         @Path("id") id: Int,
-        @Body body: Map<String, Any?>
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
     ): Response<ApiEnvelope<ReminderDto>>
 
     @POST("api/v1/reminders/parse")
-    suspend fun parse(@Body body: Map<String, Any?>): Response<ApiEnvelope<ParseResponse>>
+    suspend fun parse(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<ApiEnvelope<ParseResponse>>
 
     @GET("api/v1/occurrences")
     suspend fun occurrences(
@@ -77,7 +90,7 @@ interface ApiService {
     suspend fun occurrenceAction(
         @Path("id") id: Int,
         @Path("action") action: String,
-        @Body body: Map<String, Any?>
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
     ): Response<ApiEnvelope<Any>>
 
     @GET("api/v1/dashboard/stats")
@@ -89,7 +102,7 @@ interface ApiService {
     @POST("api/v1/payments/{id}/pay")
     suspend fun payPayment(
         @Path("id") id: Int,
-        @Body body: Map<String, Any?>
+        @Body body: Map<String, @JvmSuppressWildcards Any?>
     ): Response<ApiEnvelope<Any>>
 
     @GET("api/v1/notes")
@@ -102,7 +115,7 @@ interface ApiService {
     suspend fun syncPull(@Query("since") since: String?): Response<ApiEnvelope<SyncPullResponse>>
 
     @POST("api/v1/sync/push")
-    suspend fun syncPush(@Body body: Map<String, Any?>): Response<ApiEnvelope<SyncPushResponse>>
+    suspend fun syncPush(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<ApiEnvelope<SyncPushResponse>>
 
     @GET("api/v1/app/version")
     suspend fun appVersion(): Response<ApiEnvelope<AppVersionDto>>
