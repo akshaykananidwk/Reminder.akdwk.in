@@ -256,7 +256,7 @@ class MetaGraph
      * retried only when the server explicitly told us to come back — 429 or 503
      * — which it cannot do after having accepted the message.
      */
-    private static function shouldRetry(array $result, bool $idempotent): bool
+    public static function shouldRetry(array $result, bool $idempotent): bool
     {
         if (!self::isRetryable($result)) {
             return false;

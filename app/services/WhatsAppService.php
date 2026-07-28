@@ -7,13 +7,16 @@ use App\Core\Crypto;
 use App\Core\Logger;
 
 /**
- * WhatsApp gateway client for bulk.akdwk.in.
+ * Outbound messaging: the queue, the worker, and the choice of channel.
  *
- * Contract (Section 6 of the specification):
- *   POST {endpoint}/api.php  {api_key, session_id, number, message[, media_url]}
+ * WhatsApp now goes through the official Meta Cloud API — MetaMessageService
+ * does the sending, this class decides what to send, to whom, and when to give
+ * up. The bulk.akdwk.in gateway remains only as a disabled-by-default escape
+ * hatch (`meta_only_mode`), for an install whose Meta number is not registered
+ * yet; nothing reaches it while Meta-only mode is on, which is the default.
  *
- * Everything the product sends goes through the queue so the gateway is never
- * hammered and every message is retried and logged.
+ * Everything the product sends goes through `wa_outbound_queue` so no request
+ * path ever waits on a network call, and every attempt is retried and logged.
  */
 class WhatsAppService
 {
@@ -166,7 +169,7 @@ class WhatsAppService
 
         foreach ($order as $index => $provider) {
             $result = $provider === 'cloud'
-                ? self::sendViaCloud($number, $message, $mediaUrl, $userId, $queueId)
+                ? self::sendViaMeta($number, $message, $mediaUrl, $userId, $queueId)
                 : self::sendViaBulk($number, $message, $mediaUrl, $userId, $queueId);
 
             if ($result['ok']) {
@@ -194,9 +197,13 @@ class WhatsAppService
     }
 
     /**
-     * Which providers to try, in order. The primary comes from `wa_provider`;
-     * the other is appended only when failover is on and it is actually
-     * configured, so a half-set-up second provider can never swallow a send.
+     * Which providers to try, in order.
+     *
+     * `meta_only_mode` is the migration switch and defaults to on: the official
+     * Cloud API is the only path, and the bulk.akdwk.in gateway is not tried
+     * even if its credentials are still lying around in settings. Turning it off
+     * restores the old two-provider behaviour, which exists solely so an install
+     * mid-migration is not stranded if its Meta number is not registered yet.
      *
      * @return array<int, string>
      */
@@ -204,8 +211,12 @@ class WhatsAppService
     {
         $settings = App::i()->settings();
 
-        $primary = strtolower(trim((string) $settings->get('wa_provider', 'bulk')));
-        $primary = in_array($primary, ['bulk', 'cloud'], true) ? $primary : 'bulk';
+        if ($settings->bool('meta_only_mode', true)) {
+            return self::providerConfigured('cloud') ? ['cloud'] : [];
+        }
+
+        $primary = strtolower(trim((string) $settings->get('wa_provider', 'cloud')));
+        $primary = in_array($primary, ['bulk', 'cloud'], true) ? $primary : 'cloud';
         $secondary = $primary === 'bulk' ? 'cloud' : 'bulk';
 
         $order = [];
@@ -230,7 +241,11 @@ class WhatsAppService
     public static function providerConfigured(string $provider): bool
     {
         if ($provider === 'cloud') {
-            return MetaCloudService::isConfigured();
+            // A connected account is the real answer; the legacy settings check
+            // keeps an install working in the window between deploying this code
+            // and running the migration that creates waba_accounts.
+            return WabaAccountService::isUsable(WabaAccountService::platform())
+                || MetaCloudService::isConfigured();
         }
 
         $settings = App::i()->settings();
@@ -331,16 +346,69 @@ class WhatsAppService
         ];
     }
 
-    /** Meta WhatsApp Cloud API. */
-    private static function sendViaCloud(string $number, string $message, ?string $mediaUrl, ?int $userId, ?int $queueId): array
+    /**
+     * The official Meta Cloud API.
+     *
+     * The 24-hour rule governs everything here. Meta accepts free-form text
+     * only within 24 hours of that person's last inbound message; outside it,
+     * only an approved template is delivered and anything else answers 131047.
+     * A reminder app is proactive by nature, so most sends are outside the
+     * window — which is why the window is checked here and the message is
+     * carried by a template automatically rather than failing silently.
+     */
+    private static function sendViaMeta(string $number, string $message, ?string $mediaUrl, ?int $userId, ?int $queueId): array
     {
+        $started = microtime(true);
         $requestId = Crypto::randomToken(8);
-        $result = MetaCloudService::send($number, $message, $mediaUrl);
+        $account = WabaAccountService::forUser($userId);
 
-        $ok = $result['ok'];
-        $detail = $ok
-            ? mb_substr($result['body'], 0, 2000)
-            : MetaCloudService::explain($result['status'], $result['json']);
+        if ($account === null || !WabaAccountService::isUsable($account)) {
+            $detail = $account === null
+                ? 'No WhatsApp Business account is connected. Connect one in Admin → WhatsApp.'
+                : 'The connected WhatsApp account has no usable token or registered number.';
+
+            return self::metaFailure($queueId, $userId, $number, $message, $requestId, $detail, $started, true);
+        }
+
+        $inWindow = MetaMessageService::withinServiceWindow($account, $number);
+        $mode = 'text';
+
+        if ($inWindow) {
+            $result = ($mediaUrl !== null && $mediaUrl !== '')
+                ? MetaMessageService::sendMedia($account, $number, 'image', $mediaUrl, $message, null, $userId)
+                : MetaMessageService::sendText($account, $number, $message, false, null, $userId);
+
+            $mode = ($mediaUrl !== null && $mediaUrl !== '') ? 'image' : 'text';
+        } else {
+            $template = self::outboundTemplate($account, $userId);
+
+            if ($template === null) {
+                return self::metaFailure(
+                    $queueId,
+                    $userId,
+                    $number,
+                    $message,
+                    $requestId,
+                    'Outside the 24-hour window and no approved template is available. '
+                    . 'Create and get one approved in Admin → WhatsApp → Templates.',
+                    $started,
+                    true
+                );
+            }
+
+            $mode = 'template:' . $template['name'];
+
+            $result = MetaMessageService::sendTemplate(
+                $account,
+                $number,
+                (string) $template['name'],
+                (string) $template['language'],
+                WaTemplateService::parameters([$message]),
+                $userId
+            );
+        }
+
+        $detail = $result['ok'] ? ('sent ' . (string) $result['wamid']) : (string) $result['error'];
 
         self::log(
             $queueId,
@@ -348,19 +416,108 @@ class WhatsAppService
             $number,
             $message,
             $requestId,
-            ['status' => $result['status'], 'body' => $detail, 'error' => $result['error'], 'latency_ms' => $result['latency_ms']],
-            $ok,
-            'cloud:' . $result['mode']
+            [
+                'status'     => $result['status'],
+                'body'       => $detail,
+                'error'      => $result['error'],
+                'latency_ms' => (int) round((microtime(true) - $started) * 1000),
+            ],
+            $result['ok'],
+            'cloud:' . $mode
         );
 
         return [
-            'ok'         => $ok,
+            'ok'         => $result['ok'],
             'status'     => $result['status'],
-            'response'   => $detail,
-            'latency_ms' => $result['latency_ms'],
+            'response'   => mb_substr($detail, 0, 2000),
+            'latency_ms' => (int) round((microtime(true) - $started) * 1000),
             'provider'   => 'cloud',
-            // These will fail identically on the other gateway, so do not retry.
-            'fatal'      => in_array($result['code'], [MetaCloudService::ERROR_REENGAGEMENT, 131026, 131030], true),
+            // A rejection on the message's own merits will be rejected again on
+            // the next attempt too, so the queue should stop rather than burn
+            // three retries and an hour arriving at the same answer.
+            'fatal'      => in_array($result['code'], [131047, 131026, 131030, 132001, 132000], true),
+        ];
+    }
+
+    /**
+     * The approved template that carries a reminder outside the 24-hour window.
+     *
+     * The configured name wins if it is genuinely approved; otherwise any
+     * approved utility template with a single variable will do, because a
+     * reminder that arrives in an unexpected wrapper still beats one that never
+     * arrives at all.
+     */
+    public static function outboundTemplate(array $account, ?int $userId = null): ?array
+    {
+        $settings = App::i()->settings();
+        $accountId = (int) $account['id'];
+
+        $language = trim((string) $settings->get('wa_cloud_template_lang', '')) ?: 'en';
+
+        if ($userId !== null) {
+            $userLang = App::i()->db()->value('SELECT language FROM users WHERE id = ?', [$userId]);
+
+            if (is_string($userLang) && $userLang !== '') {
+                $language = $userLang;
+            }
+        }
+
+        $name = trim((string) $settings->get('wa_cloud_template_name', ''));
+
+        if ($name !== '') {
+            // Prefer the user's language, then any approved language of it.
+            $template = WaTemplateService::approved($accountId, $name, $language)
+                ?? WaTemplateService::approved($accountId, $name);
+
+            if ($template !== null) {
+                return $template;
+            }
+        }
+
+        try {
+            return App::i()->db()->one(
+                "SELECT * FROM wa_templates
+                  WHERE waba_account_id = ? AND status = 'APPROVED' AND deleted_at IS NULL
+                    AND category = 'UTILITY' AND variable_count = 1
+                  ORDER BY (language = ?) DESC, id
+                  LIMIT 1",
+                [$accountId, $language]
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private static function metaFailure(
+        ?int $queueId,
+        ?int $userId,
+        string $number,
+        string $message,
+        string $requestId,
+        string $detail,
+        float $started,
+        bool $fatal
+    ): array {
+        $latency = (int) round((microtime(true) - $started) * 1000);
+
+        self::log(
+            $queueId,
+            $userId,
+            $number,
+            $message,
+            $requestId,
+            ['status' => 0, 'body' => $detail, 'error' => $detail, 'latency_ms' => $latency],
+            false,
+            'cloud'
+        );
+
+        return [
+            'ok'         => false,
+            'status'     => 0,
+            'response'   => $detail,
+            'latency_ms' => $latency,
+            'provider'   => 'cloud',
+            'fatal'      => $fatal,
         ];
     }
 

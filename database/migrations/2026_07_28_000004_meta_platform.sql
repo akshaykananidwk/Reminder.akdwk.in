@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS `wa_api_log` (
   KEY `idx_apilog_error` (`error_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Meta's rate card, per country and category.
+-- The Meta rate card, per country and category.
 --
 -- Meta does NOT put the amount in the status webhook — it sends the pricing
 -- *category* and leaves the price to the published rate card. So the amount has
@@ -245,17 +245,17 @@ CREATE TABLE IF NOT EXISTS `wa_price_rates` (
 
 -- Zeroed placeholders rather than invented numbers: a wrong price shown with
 -- confidence is worse than no price at all. Admin → WhatsApp → Pricing fills
--- these in from Meta's current rate card.
+-- these in from the current Meta rate card.
 INSERT IGNORE INTO `wa_price_rates` (`country_code`, `category`, `price`, `currency`, `source`) VALUES
-  ('DEFAULT','marketing',0,'USD','not set — enter Meta''s current rate'),
-  ('DEFAULT','utility',0,'USD','not set — enter Meta''s current rate'),
-  ('DEFAULT','authentication',0,'USD','not set — enter Meta''s current rate'),
-  ('DEFAULT','service',0,'USD','not set — enter Meta''s current rate'),
+  ('DEFAULT','marketing',0,'USD','not set — enter the current Meta rate'),
+  ('DEFAULT','utility',0,'USD','not set — enter the current Meta rate'),
+  ('DEFAULT','authentication',0,'USD','not set — enter the current Meta rate'),
+  ('DEFAULT','service',0,'USD','not set — enter the current Meta rate'),
   ('DEFAULT','referral_conversion',0,'USD','free tier'),
-  ('IN','marketing',0,'INR','not set — enter Meta''s current rate'),
-  ('IN','utility',0,'INR','not set — enter Meta''s current rate'),
-  ('IN','authentication',0,'INR','not set — enter Meta''s current rate'),
-  ('IN','service',0,'INR','not set — enter Meta''s current rate');
+  ('IN','marketing',0,'INR','not set — enter the current Meta rate'),
+  ('IN','utility',0,'INR','not set — enter the current Meta rate'),
+  ('IN','authentication',0,'INR','not set — enter the current Meta rate'),
+  ('IN','service',0,'INR','not set — enter the current Meta rate');
 
 -- Settings for the platform itself (the Meta app used for Embedded Signup).
 INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`, `setting_group`, `is_encrypted`) VALUES
@@ -267,3 +267,9 @@ INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`, `setting_group`, 
   ('meta_webhook_verify_token','','meta',0),
   ('meta_only_mode','1','meta',0),
   ('meta_price_markup_percent','0','meta',0);
+
+-- Existing installs are switched to the official API. The bulk gateway
+-- credentials are left in place rather than deleted: if a number turns out not
+-- to be registered with the Cloud API yet, turning meta_only_mode off is a
+-- one-click way back, and deleting them would make that impossible.
+UPDATE `settings` SET `setting_value` = 'cloud' WHERE `setting_key` = 'wa_provider';

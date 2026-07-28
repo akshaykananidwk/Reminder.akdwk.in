@@ -266,12 +266,17 @@ foreach ([
 assertThat('a network failure is explained',
     stripos(MetaCloudService::explain(0, null), 'graph.facebook.com') !== false);
 
-echo "\n=== 8. Both providers coexist ===\n\n";
+echo "\n=== 8. Meta is the only send path ===\n\n";
 
 $wa = (string) file_get_contents(__DIR__ . '/../app/services/WhatsAppService.php');
 
-assertThat('bulk gateway sending is still present', str_contains($wa, 'sendViaBulk'));
-assertThat('cloud sending is wired in', str_contains($wa, 'sendViaCloud'));
+assertThat('Meta-only mode is the default', str_contains($wa, "bool('meta_only_mode', true)"));
+assertThat('Meta-only mode returns cloud alone',
+    (bool) preg_match("/meta_only_mode', true\)\)\s*\{\s*return[^;]*\['cloud'\]/s", $wa));
+assertThat('cloud sending is wired in', str_contains($wa, 'sendViaMeta'));
+assertThat('sends go through the official message service',
+    str_contains($wa, 'MetaMessageService::sendText')
+    && str_contains($wa, 'MetaMessageService::sendTemplate'));
 assertThat('provider order is explicit', str_contains($wa, 'providerOrder'));
 assertThat('an unconfigured provider is never queued', str_contains($wa, 'providerConfigured'));
 assertThat('rejections that both gateways share are not retried', str_contains($wa, "'fatal'"));
