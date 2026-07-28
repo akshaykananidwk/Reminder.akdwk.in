@@ -457,6 +457,62 @@ assertThat('a failed sync is labelled as a failure',
 
 assertThat('the message can be dismissed', str_contains($viewModel, 'fun clearMessage'));
 
+echo "\n=== 10. The bearer token survives the web server ===\n\n";
+
+/*
+ * Apache does not pass Authorization to CGI/FastCGI, which is how PHP-FPM runs
+ * on aaPanel. The token is dropped between Apache and PHP, so signing in works
+ * — that is a POST body — and every authenticated call then answers 401. The
+ * app showed exactly that: "Sync failed (401)".
+ */
+$htaccess = (string) file_get_contents(__DIR__ . '/../.htaccess');
+
+assertThat('.htaccess restores the header via mod_rewrite',
+    str_contains($htaccess, 'E=HTTP_AUTHORIZATION:%1'));
+
+assertThat('.htaccess also covers mod_setenvif',
+    str_contains($htaccess, 'SetEnvIf Authorization'));
+
+assertThat('.htaccess also covers CGIPassAuth',
+    str_contains($htaccess, 'CGIPassAuth On'));
+
+assertThat('the rewrite runs before the HTTPS redirect',
+    strpos($htaccess, 'E=HTTP_AUTHORIZATION') < strpos($htaccess, 'R=301'),
+    'a redirect would end the request first');
+
+// Every place the token can legitimately land must be read.
+$originalServer = $_SERVER;
+
+foreach ([
+    'HTTP_AUTHORIZATION'          => 'mod_php or SetEnvIf',
+    'REDIRECT_HTTP_AUTHORIZATION' => 'the mod_rewrite fallback',
+] as $key => $label) {
+    $_SERVER = [$key => 'Bearer tok_' . $key];
+
+    assertThat('token found via ' . $label,
+        \App\Core\Request::bearerToken() === 'tok_' . $key);
+}
+
+$_SERVER = ['HTTP_AUTHORIZATION' => 'bearer lower_case_scheme'];
+assertThat('the scheme is matched case-insensitively',
+    \App\Core\Request::bearerToken() === 'lower_case_scheme');
+
+$_SERVER = [];
+assertThat('no header means no token, not a crash',
+    \App\Core\Request::bearerToken() === null);
+
+$_SERVER = ['HTTP_AUTHORIZATION' => 'Bearer'];
+assertThat('a malformed header yields nothing',
+    \App\Core\Request::bearerToken() === null);
+
+$_SERVER = $originalServer;
+
+$apiIndex = (string) file_get_contents(__DIR__ . '/../api/v1/index.php');
+
+assertThat('health reports whether the header arrived',
+    str_contains($apiIndex, "'auth_header_received'"),
+    'so this is checkable with curl instead of guessed at');
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

@@ -5,8 +5,30 @@
 Options -Indexes +FollowSymLinks
 DirectoryIndex index.php index.html
 
+# Let the Authorization header reach PHP.
+#
+# Apache does not pass it to CGI/FastCGI, which is how PHP-FPM runs on aaPanel
+# and most shared hosts. Without this the Android app signs in fine — that is a
+# POST body — and then every authenticated call comes back 401, because the
+# bearer token was silently dropped between Apache and PHP.
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# Apache 2.4.13+ with mod_proxy_fcgi: the supported way to do the same thing.
+<IfModule mod_proxy_fcgi.c>
+    <IfModule mod_ssl.c>
+        CGIPassAuth On
+    </IfModule>
+</IfModule>
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Belt and braces: some builds honour neither directive above, but do carry
+    # the value through a rewrite into REDIRECT_HTTP_AUTHORIZATION.
+    RewriteCond %{HTTP:Authorization} ^(.+)$
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
 
     # Force HTTPS (comment out if the site runs behind a TLS-terminating proxy
     # that already sets X-Forwarded-Proto).

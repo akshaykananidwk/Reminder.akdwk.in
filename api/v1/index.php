@@ -172,7 +172,22 @@ try {
     /* =================================================== Public endpoints */
 
     if ($segments === ['health']) {
-        Response::ok(['status' => 'ok', 'time' => now_utc(), 'version' => $app->config('app.version')]);
+        // auth_header_received tells you, without guessing, whether Apache is
+        // passing the Authorization header through to PHP. On CGI/FastCGI it
+        // strips it by default, and the only symptom is that signing in works
+        // and every authenticated call then answers 401.
+        //
+        //   curl -H 'Authorization: Bearer test' https://…/api/v1/health
+        //
+        // If that shows false, the .htaccess rules are not being applied —
+        // check that AllowOverride permits them.
+        Response::ok([
+            'status'               => 'ok',
+            'time'                 => now_utc(),
+            'version'              => $app->config('app.version'),
+            'auth_header_received' => Request::bearerToken() !== null,
+            'sapi'                 => PHP_SAPI,
+        ]);
     }
 
     if ($segments === ['app', 'version']) {

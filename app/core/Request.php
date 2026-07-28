@@ -137,18 +137,61 @@ final class Request
         return $_SERVER[$key] ?? $default;
     }
 
+    /**
+     * The bearer token, from wherever this server happens to put it.
+     *
+     * Apache does not pass Authorization to CGI/FastCGI — which is how PHP-FPM
+     * runs on aaPanel and most shared hosts — so $_SERVER['HTTP_AUTHORIZATION']
+     * is simply absent. The .htaccess rewrite puts it back, but under a
+     * different key, and only if mod_rewrite is enabled. Every place it can
+     * legitimately arrive is therefore checked, rather than assuming one.
+     *
+     * Getting this wrong is invisible in the obvious way: signing in still
+     * works, because that is a POST body, and then every authenticated request
+     * answers 401.
+     */
     public static function bearerToken(): ?string
     {
-        $header = self::header('Authorization');
+        $header = null;
 
-        if ($header === null && function_exists('apache_request_headers')) {
-            $headers = apache_request_headers();
-            foreach ($headers as $k => $v) {
-                if (strcasecmp($k, 'Authorization') === 0) {
-                    $header = $v;
-                    break;
+        foreach ([
+            'HTTP_AUTHORIZATION',           // mod_php, or the SetEnvIf above
+            'REDIRECT_HTTP_AUTHORIZATION',  // what the .htaccess rewrite produces
+            'PHP_AUTH_DIGEST',
+        ] as $key) {
+            if (!empty($_SERVER[$key]) && is_string($_SERVER[$key])) {
+                $header = $_SERVER[$key];
+                break;
+            }
+        }
+
+        // Some SAPIs expose it only through this call.
+        if ($header === null) {
+            foreach (['apache_request_headers', 'getallheaders'] as $fn) {
+                if (!function_exists($fn)) {
+                    continue;
+                }
+
+                $headers = $fn();
+
+                if (!is_array($headers)) {
+                    continue;
+                }
+
+                foreach ($headers as $k => $v) {
+                    if (strcasecmp((string) $k, 'Authorization') === 0 && is_string($v) && $v !== '') {
+                        $header = $v;
+                        break 2;
+                    }
                 }
             }
+        }
+
+        // Last resort: PHP splits Basic credentials out into their own keys.
+        if ($header === null && !empty($_SERVER['PHP_AUTH_USER'])) {
+            $header = 'Basic ' . base64_encode(
+                $_SERVER['PHP_AUTH_USER'] . ':' . ($_SERVER['PHP_AUTH_PW'] ?? '')
+            );
         }
 
         if (is_string($header) && preg_match('/Bearer\s+(\S+)/i', $header, $m)) {
