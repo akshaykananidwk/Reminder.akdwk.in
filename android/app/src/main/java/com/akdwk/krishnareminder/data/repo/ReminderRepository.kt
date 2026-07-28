@@ -298,6 +298,63 @@ class ReminderRepository private constructor(private val context: Context) {
         }
     }
 
+    suspend fun addNote(body: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.createNote(mapOf("body" to body))
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(
+                    IllegalStateException(response.body()?.message ?: "Save failed (${response.code()})")
+                )
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Delete a note on the server, then locally so the list updates at once. */
+    suspend fun deleteNote(id: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.deleteNote(id)
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(
+                    IllegalStateException(response.body()?.message ?: "Delete failed (${response.code()})")
+                )
+            }
+
+            db.notes().deleteById(id)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Delete a reminder and drop its cached occurrences and alarms. */
+    suspend fun deleteReminder(id: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.deleteReminder(id)
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(
+                    IllegalStateException(response.body()?.message ?: "Delete failed (${response.code()})")
+                )
+            }
+
+            db.reminders().deleteById(id)
+            db.occurrences().deleteByReminder(id)
+
+            // Otherwise a deleted reminder would still ring from its local alarm.
+            AlarmScheduler.rearmAll(context)
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun refreshNotes(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val data = api.notes().body()?.data ?: return@withContext Result.failure(IllegalStateException("No data"))

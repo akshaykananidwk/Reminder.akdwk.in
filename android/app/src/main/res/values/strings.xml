@@ -84,4 +84,5 @@
     <string name="server_url">Server URL</string>
     <string name="perm_fullscreen">Show as a full-screen call</string>
     <string name="perm_fullscreen_why">Android 14 and newer block this by default. Without it a reminder is only a quiet notification — it will not ring over the lock screen.</string>
+    <string name="nav_notes">Notes</string>
 </resources>

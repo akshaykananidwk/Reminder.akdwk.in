@@ -151,6 +151,17 @@ class FallbackParser
             'help'    => ['મદદ', 'મદદ કરો', 'मदद', 'help', 'kaise', 'કેવી રીતે'],
             'cancel'  => ['રદ કરો', 'કેન્સલ', 'रद्द', 'कैंसिल', 'cancel'],
             'complete'=> ['થઈ ગયું', 'પૂરું થયું', 'हो गया', 'पूरा हो गया', 'done', 'completed'],
+            // "Keep a note", "write this down", a shopping list — the user is
+            // asking us to remember *text*, not to ring them at a time. Without
+            // this the message fell through to `create` and became a reminder
+            // at the default time, which is not what was asked for and puts a
+            // pointless alarm on the calendar.
+            'note'    => [
+                'નોટ', 'નોંધ', 'લખી રાખ', 'લખી લે', 'ટાંકી રાખ', 'યાદ રાખવા માટે લખ',
+                'नोट', 'लिख लो', 'लिख लीजिए', 'लिखकर रखो',
+                'note this', 'make a note', 'take a note', 'write this down', 'jot ',
+                'shopping list', 'save this',
+            ],
         ];
 
         foreach ($map as $intent => $keywords) {

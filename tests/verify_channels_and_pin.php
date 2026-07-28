@@ -574,6 +574,68 @@ assertThat('the foreground service declares a type',
     str_contains($manifest, 'android:foregroundServiceType'),
     'Android 14 refuses to start one without it');
 
+echo "\n=== 12. Notes: recognised, listed and deletable ===\n\n";
+
+$detect = new ReflectionMethod(\App\Services\FallbackParser::class, 'detectIntent');
+$detect->setAccessible(true);
+
+// "Keep a note ready — three bullet cameras, three dome cameras and an NVR"
+// has no time in it. It used to fall through to `create` and became a reminder
+// at the default time, putting a pointless alarm on the calendar.
+foreach ([
+    'મારે છે ને એક નોટ તમે તૈયાર રાખી દો. ત્રણ બુલેટ કેમેરા અને એનવીઆર' => 'note',
+    'make a note: order 3 cameras'                                    => 'note',
+    'यह लिख लो - तीन कैमरे'                                            => 'note',
+    'કાલે સવારે ૧૦ વાગ્યે બેંક જવાનું છે'                              => 'create',
+    'આજે શું છે'                                                       => 'list',
+] as $text => $expected) {
+    assertThat(
+        'intent for "' . str_limit($text, 34) . '"',
+        $detect->invoke(null, mb_strtolower($text)) === $expected,
+        'expected ' . $expected
+    );
+}
+
+$apiSrc = (string) file_get_contents(__DIR__ . '/../api/v1/index.php');
+
+assertThat('notes can be deleted over the API',
+    str_contains($apiSrc, "\$segments[0] === 'notes' && ctype_digit"));
+
+assertThat('reminders can be deleted over the API',
+    str_contains($apiSrc, "if (\$method === 'DELETE') {"));
+
+assertThat('a note delete is scoped to its owner',
+    (bool) preg_match('/UPDATE notes SET deleted_at = \? WHERE id = \? AND user_id = \?/', $apiSrc),
+    'the id arrives from the client');
+
+assertThat('deleting a reminder cancels its pending occurrences',
+    str_contains($apiSrc, 'status = "cancelled"'),
+    'otherwise the dispatcher keeps ringing for a deleted reminder');
+
+$appDir = __DIR__ . '/../android/app/src/main/java/com/akdwk/krishnareminder/';
+
+assertThat('the app has a Notes screen', is_file($appDir . 'ui/screens/NotesScreen.kt'));
+
+$main = (string) file_get_contents($appDir . 'ui/MainActivity.kt');
+
+assertThat('Notes is reachable from the bottom bar',
+    str_contains($main, 'Routes.NOTES') && str_contains($main, 'NotesScreen(viewModel)'));
+
+$apiService = (string) file_get_contents($appDir . 'data/api/ApiService.kt');
+
+assertThat('the app can delete a note', str_contains($apiService, 'deleteNote'));
+assertThat('the app can delete a reminder', str_contains($apiService, 'deleteReminder'));
+
+$repo = (string) file_get_contents($appDir . 'data/repo/ReminderRepository.kt');
+
+assertThat('a deleted reminder stops ringing locally',
+    (bool) preg_match('/fun deleteReminder.*?AlarmScheduler\.rearmAll/s', $repo),
+    'the local alarm would otherwise still fire');
+
+$settingsScreen = (string) file_get_contents($appDir . 'ui/screens/SettingsScreen.kt');
+
+assertThat('the app offers a ringtone choice', str_contains($settingsScreen, 'ringtone'));
+
 echo "\n" . str_repeat('-', 78) . "\n";
 echo "TOTAL: " . ($pass + $fail) . "   PASS: $pass   FAIL: $fail\n";
 

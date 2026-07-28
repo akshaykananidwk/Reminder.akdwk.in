@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,7 @@ import com.akdwk.krishnareminder.sync.SyncWorker
 import com.akdwk.krishnareminder.ui.screens.AboutScreen
 import com.akdwk.krishnareminder.ui.screens.AddReminderScreen
 import com.akdwk.krishnareminder.ui.screens.HomeScreen
+import com.akdwk.krishnareminder.ui.screens.NotesScreen
 import com.akdwk.krishnareminder.ui.screens.LoginScreen
 import com.akdwk.krishnareminder.ui.screens.OnboardingScreen
 import com.akdwk.krishnareminder.ui.screens.PaymentsScreen
@@ -110,6 +112,7 @@ object Routes {
     const val HOME = "home"
     const val REMINDERS = "reminders"
     const val PAYMENTS = "payments"
+    const val NOTES = "notes"
     const val SETTINGS = "settings"
     const val ADD = "add"
     const val ABOUT = "about"
@@ -156,7 +159,7 @@ private fun AppRoot(sharedText: String) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.hierarchy?.firstOrNull()?.route
 
-    val showChrome = currentRoute in listOf(Routes.HOME, Routes.REMINDERS, Routes.PAYMENTS, Routes.SETTINGS)
+    val showChrome = currentRoute in listOf(Routes.HOME, Routes.REMINDERS, Routes.NOTES, Routes.PAYMENTS, Routes.SETTINGS)
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -166,6 +169,7 @@ private fun AppRoot(sharedText: String) {
                     val items = listOf(
                         Triple(Routes.HOME, Icons.Filled.Home, R.string.nav_home),
                         Triple(Routes.REMINDERS, Icons.Filled.CheckCircle, R.string.nav_reminders),
+                        Triple(Routes.NOTES, Icons.Filled.Description, R.string.nav_notes),
                         Triple(Routes.PAYMENTS, Icons.Filled.Payments, R.string.nav_payments),
                         Triple(Routes.SETTINGS, Icons.Filled.Settings, R.string.nav_settings)
                     )
@@ -241,6 +245,7 @@ private fun AppRoot(sharedText: String) {
 
             composable(Routes.REMINDERS) { RemindersScreen(viewModel) }
 
+            composable(Routes.NOTES) { NotesScreen(viewModel) }
             composable(Routes.PAYMENTS) { PaymentsScreen(viewModel) }
 
             composable(Routes.SETTINGS) {

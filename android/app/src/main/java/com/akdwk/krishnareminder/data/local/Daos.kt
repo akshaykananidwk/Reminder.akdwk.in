@@ -69,6 +69,9 @@ interface OccurrenceDao {
     @Query("DELETE FROM occurrences WHERE dueAtMillis < :before AND status IN ('done','cancelled')")
     suspend fun purgeOld(before: Long)
 
+    @Query("DELETE FROM occurrences WHERE reminderId = :reminderId")
+    suspend fun deleteByReminder(reminderId: Int)
+
     @Query("DELETE FROM occurrences")
     suspend fun clear()
 }
@@ -103,6 +106,9 @@ interface NoteDao {
 
     @Query("SELECT * FROM notes ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<NoteEntity>>
+
+    @Query("DELETE FROM notes WHERE id = :id")
+    suspend fun deleteById(id: Int)
 
     @Query("DELETE FROM notes")
     suspend fun clear()

@@ -146,6 +146,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _loggedIn.value = false
     }
 
+    fun deleteNote(id: Int) = viewModelScope.launch {
+        repo.deleteNote(id).onFailure { _message.value = "⚠️ " + (it.message ?: "Could not delete") }
+        repo.refreshNotes()
+    }
+
+    fun addNote(body: String) = viewModelScope.launch {
+        if (body.isBlank()) return@launch
+
+        repo.addNote(body).onFailure { _message.value = "⚠️ " + (it.message ?: "Could not save") }
+        repo.refreshNotes()
+    }
+
+    fun deleteReminder(id: Int) = viewModelScope.launch {
+        repo.deleteReminder(id).onFailure { _message.value = "⚠️ " + (it.message ?: "Could not delete") }
+    }
+
     fun consumeMessage() {
         _message.value = null
     }

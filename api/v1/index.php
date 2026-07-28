@@ -640,6 +640,21 @@ try {
             Response::error(Lang::get('api.not_found'), 404, 'NOT_FOUND');
         }
 
+        // Soft delete, so it can still be restored from the website's Trash.
+        if ($method === 'DELETE') {
+            $db->update('reminders', ['deleted_at' => now_utc()], 'id = :id', ['id' => $reminderId]);
+
+            // Cancel anything still pending, or the dispatcher would keep
+            // ringing for a reminder the user has deleted.
+            $db->query(
+                'UPDATE reminder_occurrences SET status = "cancelled", updated_at = ?
+                  WHERE reminder_id = ? AND status IN ("pending", "snoozed")',
+                [now_utc(), $reminderId]
+            );
+
+            Response::ok(['id' => $reminderId], Lang::get('reminder.deleted'));
+        }
+
         if ($method === 'GET') {
             $occurrences = $db->all('SELECT * FROM reminder_occurrences WHERE reminder_id = ? ORDER BY due_at ASC LIMIT 100', [$reminderId]);
             $timeline = $db->all(
@@ -885,6 +900,24 @@ try {
         ]);
 
         Response::json(['id' => $id], Lang::get('common.saved'), 201, 'CREATED');
+    }
+
+    // Soft delete, scoped by user_id: the id comes from the client, so without
+    // that clause anyone could delete someone else's note by guessing a number.
+    if (count($segments) === 2 && $segments[0] === 'notes' && ctype_digit($segments[1])
+        && in_array($method, ['DELETE', 'POST'], true) && Request::post('_method') !== 'update') {
+        $noteId = (int) $segments[1];
+
+        $affected = $db->query(
+            'UPDATE notes SET deleted_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL',
+            [now_utc(), $noteId, $userId]
+        )->rowCount();
+
+        if ($affected === 0) {
+            Response::error('Note not found', 404, 'NOT_FOUND');
+        }
+
+        Response::ok(['id' => $noteId], Lang::get('common.deleted'));
     }
 
     /* --------------------------------------------------------- contacts --- */
