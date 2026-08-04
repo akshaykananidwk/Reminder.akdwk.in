@@ -6,6 +6,66 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — one cron for the whole application
+
+### Changed — every scheduled task now runs from a single master cron
+
+The server used to need ten crontab lines, one per background task, each with
+its own script, its own flock file and its own copy of the begin/finish
+boilerplate. Adding a feature that needed scheduling meant editing the crontab
+on the server. Now there is one line:
+
+```cron
+* * * * * /usr/bin/php /path/to/cron/run.php >/dev/null 2>&1
+```
+
+- **Thirteen registered jobs**, each a class in `app/jobs/` with its own
+  schedule, priority, timeout and retry policy. Adding a background task is a
+  class plus one line in `Scheduler::REGISTRY` — no new script, no new crontab
+  entry.
+- **Admin → Cron** manages all of it: status, last run, next run, failure
+  count, enable/disable per job, an editable schedule (every N / daily at /
+  weekly on), Run now, Run everything due, Retry, Unlock, and the full
+  execution history with stack traces.
+- **The old per-job scripts still work.** Each is now a wrapper that runs the
+  same job through the same scheduler with the same lock, and respects the
+  schedule rather than forcing it — so a machine running both the old lines and
+  the new master executes each job once, never twice.
+- `cron.php?job=all` keeps working and quietly gets better: it now runs
+  everything due, not just the three one-minute jobs.
+
+### Added
+
+- `payment_due` — payments entered without a reminder of their own had nothing
+  watching them: the due date passed and nobody was told. One message per
+  payment per local day, and only for money that no reminder already covers.
+- `health_check` — alerts the admin WhatsApp number when a job stops reporting
+  or fails three times in a row, at most hourly.
+- `cron/run.php --list` prints the schedule, next run times and last status.
+- `docs/SCHEDULER.md`, and `tests/verify_scheduler.php` (107 assertions).
+
+### Fixed
+
+- **Locks were per-machine.** flock() cannot coordinate two web servers, or a
+  CLI cron and an admin "Run now" whose PHP-FPM pool has a different /tmp —
+  both would believe they held it and the customer would get the reminder
+  twice. The lock is now a conditional UPDATE, proved in the test suite by
+  racing two claims against a real SQL engine.
+- **A killed run wedged its job forever.** Stale locks are now reaped every
+  pass, the run is marked `timeout` in the history, and the reason is logged.
+- **A missing crontab looked healthy.** Every job individually reads as "not
+  overdue yet" for a while after the cron is removed. The master now writes a
+  heartbeat on every pass, and the admin page, /api/health and cron/repair.php
+  all lead with it.
+- **Daily jobs were scheduled in the server's timezone.** "09:00" now means
+  09:00 where the business is, computed in the site timezone and converted
+  afterwards, so it survives daylight saving.
+- A recurrence test compared against a hard-coded occurrence count and started
+  failing after local midnight. The expectation is now derived from the
+  calendar, in the reminder's own timezone.
+
+---
+
 ## [Unreleased] — migration to the official Meta WhatsApp Cloud API
 
 ### Changed — WhatsApp now runs entirely on Meta's official API

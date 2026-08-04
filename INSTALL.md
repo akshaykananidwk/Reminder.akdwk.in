@@ -46,33 +46,37 @@ The wizard has eight steps:
 
 ## 3. Cron
 
-Paste these into aaPanel → Cron (adjust the path and the PHP binary):
+Paste this one line into aaPanel → Cron (adjust the path and the PHP binary):
 
 ```cron
-* * * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/dispatcher.php    >/dev/null 2>&1
-* * * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/ai_queue.php      >/dev/null 2>&1
-* * * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/wa_queue.php      >/dev/null 2>&1
-*/5 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/morning_brief.php  >/dev/null 2>&1
-*/5 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/daily_summary.php  >/dev/null 2>&1
-*/15 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/google_sync.php   >/dev/null 2>&1
-*/15 * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/meta_sync.php     >/dev/null 2>&1
-0 * * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/recurrence.php    >/dev/null 2>&1
-0 9 * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/subscriptions.php >/dev/null 2>&1
-0 3 * * *  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/backup.php        >/dev/null 2>&1
-0 4 * * 0  /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/cleanup.php       >/dev/null 2>&1
+* * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/run.php >/dev/null 2>&1
 ```
 
-Every job takes an `flock` mutex, so overlapping runs are impossible and a stuck run is detected after 30 minutes.
+That is the whole crontab. `cron/run.php` is the master: it wakes every minute
+and runs whatever is due. Which jobs exist, how often each runs and whether it
+is switched on are all managed in **Admin → Cron**, so a new background task
+never needs another entry here.
 
-**No PHP-CLI cron available?** Point any uptime monitor at this URL once a minute — it runs the three one-minute jobs:
+The old per-job scripts (`cron/dispatcher.php`, `cron/wa_queue.php`, …) still
+work and now delegate to the same scheduler with the same lock — an existing
+crontab keeps running and executes nothing twice. They can be removed from the
+crontab whenever convenient.
+
+Each job takes a lock in the database — not a file — so overlapping runs are impossible even
+across two web servers, and a lock left behind by a run that died is cleared automatically.
+
+**No PHP-CLI cron available?** Point any uptime monitor at this URL once a minute — it does exactly what the master does:
 
 ```
-https://reminder.akdwk.in/cron.php?job=all&token=<CRON_TOKEN>
+https://reminder.akdwk.in/cron.php?token=<CRON_TOKEN>
 ```
 
-The token is in `config/config.php` under `security.cron_token`, and the ready-made URL is shown in **Admin → Cron monitor**.
+The token is in `config/config.php` under `security.cron_token`, and the ready-made URL is shown in **Admin → Cron**.
 
-The admin cron monitor shows last run, duration, rows processed and errors for each job, with a **Run now** button. If a job stops reporting, the owner gets a WhatsApp alert (at most hourly).
+**Admin → Cron** shows every job with its schedule, last run, next run, failure count and
+full execution history, and lets you enable or disable a job, change when it runs, run it now,
+retry a failed one, or clear a stuck lock. If a job stops reporting or fails three times in a
+row, the owner gets a WhatsApp alert (at most hourly).
 
 ---
 

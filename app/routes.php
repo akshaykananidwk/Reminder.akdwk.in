@@ -201,6 +201,12 @@ $router->group('/admin', ['admin'], function ($r): void {
     // Monitoring
     $r->get('/cron', ['Admin\MonitorController', 'cron']);
     $r->post('/cron/run', ['Admin\MonitorController', 'runCron'], ['csrf']);
+    $r->post('/cron/run-due', ['Admin\MonitorController', 'runDue'], ['csrf']);
+    $r->post('/cron/toggle', ['Admin\MonitorController', 'toggleCron'], ['csrf']);
+    $r->post('/cron/schedule', ['Admin\MonitorController', 'scheduleCron'], ['csrf']);
+    $r->post('/cron/retry', ['Admin\MonitorController', 'retryCron'], ['csrf']);
+    $r->post('/cron/unlock', ['Admin\MonitorController', 'unlockCron'], ['csrf']);
+    $r->post('/cron/settings', ['Admin\MonitorController', 'saveCronSettings'], ['csrf']);
     $r->get('/logs', ['Admin\MonitorController', 'logs']);
     $r->get('/ai-report', ['Admin\MonitorController', 'aiReport']);
     $r->get('/broadcast', ['Admin\MonitorController', 'broadcast']);

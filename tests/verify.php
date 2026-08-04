@@ -159,6 +159,34 @@ foreach ($cases as [$sentence, $expectation, $assert]) {
 
 echo "\n=== 2. Recurrence expansion ===\n\n";
 
+
+/**
+ * How many times a given day-of-month falls inside the expansion window.
+ *
+ * Computed rather than written down, because how many 5ths fit in 90 days
+ * depends on which day the window opens on — and a test that passes in the
+ * morning and fails after midnight teaches people to ignore the whole suite.
+ *
+ * The day is judged in the reminder's own timezone, which is what the expander
+ * does: 2026-11-04 04:30 UTC is already 10:00 on the 4th in Kolkata, so a 5th
+ * that has not arrived locally must not be counted.
+ */
+function count_month_days(string $baseUtc, int $days, int $dayOfMonth, string $tz): int
+{
+    $zone = new DateTimeZone($tz);
+    $start = strtotime($baseUtc . ' UTC');
+    $end = $start + ($days * 86400);
+    $count = 0;
+
+    for ($t = $start; $t <= $end; $t += 86400) {
+        if ((int) (new DateTimeImmutable('@' . $t))->setTimezone($zone)->format('j') === $dayOfMonth) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
 $base = gmdate('Y-m-d H:i:s', strtotime('tomorrow 04:30 UTC'));
 
 $recurrenceCases = [
@@ -166,7 +194,10 @@ $recurrenceCases = [
     ['every 2 days over 10 days', ['freq' => 'daily', 'interval' => 2], 10, 5],
     ['weekly over 28 days', ['freq' => 'weekly', 'interval' => 1], 28, 4],
     ['weekly MO+TH over 28 days', ['freq' => 'weekly', 'interval' => 1, 'by_day' => ['MO', 'TH']], 28, 8],
-    ['monthly day 5 over 90 days', ['freq' => 'monthly', 'interval' => 1, 'by_month_day' => 5], 90, 3],
+    // Computed, not hard-coded: how many 5ths fall inside a 90-day window
+    // depends on which day the window opens on, and a test that passes in the
+    // morning and fails at midnight teaches people to ignore the suite.
+    ['monthly day 5 over 90 days', ['freq' => 'monthly', 'interval' => 1, 'by_month_day' => 5], 90, count_month_days($base, 90, 5, 'Asia/Kolkata')],
     ['none', ['freq' => 'none'], 30, 1],
     ['daily with count=4', ['freq' => 'daily', 'interval' => 1, 'count' => 4], 30, 4],
 ];

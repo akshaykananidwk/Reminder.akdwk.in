@@ -33,13 +33,17 @@ Send a plain Gujarati, Hindi or English message on WhatsApp — your Android pho
    │  reminder.akdwk.in — PHP 8.1+ / MySQL, aaPanel        │
    │                                                       │
    │  api/wa_webhook.php  whitelist → raw store → queue    │
-   │  cron/ai_queue.php   Gemini parse → reminders         │
-   │  cron/dispatcher.php (60 s) due occurrences           │
-   │       ├─▶ FCM high-priority data push (CALL)          │
-   │       ├─▶ WhatsApp outbound queue                     │
-   │       └─▶ in-app + web push notification              │
-   │  cron/ morning_brief · daily_summary · recurrence     │
-   │  cron/ google_sync · subscriptions · backup · cleanup │
+   │                                                       │
+   │  cron/run.php  ONE server cron, every minute          │
+   │   └─ Scheduler → 13 registered jobs, DB-locked        │
+   │       ├─▶ dispatcher (60 s) due occurrences           │
+   │       │    ├─▶ FCM high-priority data push (CALL)     │
+   │       │    ├─▶ WhatsApp outbound queue                │
+   │       │    └─▶ in-app + web push notification         │
+   │       ├─▶ ai_queue  Gemini parse → reminders          │
+   │       ├─▶ morning_brief · daily_summary · recurrence  │
+   │       ├─▶ google_sync · meta_sync · payment_due       │
+   │       └─▶ subscriptions · backup · cleanup · health   │
    │                                                       │
    │  /client (dashboard)  /admin (owner)  /install        │
    │  /api/v1 (mobile)     /cron.php (web-cron fallback)   │
@@ -52,7 +56,7 @@ Send a plain Gujarati, Hindi or English message on WhatsApp — your Android pho
        Google Calendar / Tasks (optional, per user)
 ```
 
-No Laravel, no Node, no Redis, no Docker, no Composer. Plain PHP 8 + cURL + PDO, so it runs on any shared host with PHP-CLI cron.
+No Laravel, no Node, no Redis, no Docker, no Composer. Plain PHP 8 + cURL + PDO, so it runs on any shared host with PHP-CLI cron — or none at all, since one monitored URL can drive the scheduler instead.
 
 ---
 
@@ -68,7 +72,8 @@ No Laravel, no Node, no Redis, no Docker, no Composer. Plain PHP 8 + cURL + PDO,
                       Fcm Google Tts Update Backup Payment Report Invoice Cron …
    views/             layouts/ public/ auth/ client/ admin/ errors/
 /api                  v1/index.php · wa_webhook.php · health.php
-/cron                 dispatcher ai_queue wa_queue recurrence google_sync
+/cron                 run.php (master) + legacy per-job wrappers
+/app/jobs             one class per scheduled task, registered in Scheduler
                       morning_brief daily_summary subscriptions backup cleanup
 /database             schema.sql · seed.sql · migrations/
 /install              one-click setup wizard
@@ -83,7 +88,7 @@ No Laravel, no Node, no Redis, no Docker, no Composer. Plain PHP 8 + cURL + PDO,
 
 ## Install
 
-Upload the ZIP, extract it, open **`/install`**. That is the whole procedure — the wizard writes `config/config.php` itself, imports the schema, seeds the data, live-tests the WhatsApp gateway and Gemini, and prints the cron lines.
+Upload the ZIP, extract it, open **`/install`**. That is the whole procedure — the wizard writes `config/config.php` itself, imports the schema, seeds the data, live-tests the WhatsApp gateway and Gemini, and prints the single cron line.
 
 Full instructions: **[INSTALL.md](INSTALL.md)**
 
@@ -139,7 +144,7 @@ Every call logs `prompt_tokens`, `completion_tokens`, model, latency and compute
 - **WorkManager** reconciles server ↔ device every 15 minutes.
 - **Offline action queue** with client ids; the server deduplicates, so an offline "Done" is never lost and never applied twice.
 - **Graceful degradation**: Gemini down → regex parser · FCM down → WhatsApp · WhatsApp down → in-app. The user is always told something.
-- `flock` on every cron job, `cron_runs` accounting, and a WhatsApp alert to the owner when a job stops running.
+- A database lock on every scheduled job — not flock, so it holds across servers — with stale-lock reaping, per-attempt history, and a WhatsApp alert to the owner when a job stops running or keeps failing.
 
 ---
 

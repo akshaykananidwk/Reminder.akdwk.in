@@ -665,28 +665,19 @@ ob_start();
             $lastRun = App::i()->db()->one('SELECT job, started_at FROM cron_runs ORDER BY id DESC LIMIT 1');
             ?>
             <h1>Scheduled tasks</h1>
-            <p class="lead">Paste these into aaPanel → Cron. Everything the product does in the background runs from here.</p>
-            <pre class="code">* * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/dispatcher.php >/dev/null 2>&amp;1
-* * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/ai_queue.php >/dev/null 2>&amp;1
-* * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/wa_queue.php >/dev/null 2>&amp;1
-*/5 * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/morning_brief.php >/dev/null 2>&amp;1
-*/5 * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/daily_summary.php >/dev/null 2>&amp;1
-*/15 * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/google_sync.php >/dev/null 2>&amp;1
-0 * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/recurrence.php >/dev/null 2>&amp;1
-0 9 * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/subscriptions.php >/dev/null 2>&amp;1
-0 3 * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/backup.php >/dev/null 2>&amp;1
-0 4 * * 0 <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/cleanup.php >/dev/null 2>&amp;1
-</pre>
+            <p class="lead">One line. Everything the product does in the background runs from it, and
+            which jobs run and when is managed later in Admin &rarr; Cron.</p>
+            <pre class="code">* * * * * <?= htmlspecialchars($php, ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($root, ENT_QUOTES, 'UTF-8') ?>/cron/run.php >/dev/null 2>&amp;1</pre>
             <div class="callout">
-                <strong>No PHP-CLI cron available?</strong> Use a URL monitor instead, once a minute:<br>
-                <code><?= htmlspecialchars(detect_base_url() . '/cron.php?job=all&token=' . $token, ENT_QUOTES, 'UTF-8') ?></code>
+                <strong>No PHP-CLI cron available?</strong> Point a URL monitor at this instead, once a minute:<br>
+                <code><?= htmlspecialchars(detect_base_url() . '/cron.php?token=' . $token, ENT_QUOTES, 'UTF-8') ?></code>
             </div>
             <p class="<?= $lastRun ? 'good' : 'warn-text' ?>">
                 <?php if ($lastRun): ?>
-                    ✅ Detected a cron run: <strong><?= htmlspecialchars((string) $lastRun['job'], ENT_QUOTES, 'UTF-8') ?></strong>
+                    &#9989; Detected a cron run: <strong><?= htmlspecialchars((string) $lastRun['job'], ENT_QUOTES, 'UTF-8') ?></strong>
                     at <?= htmlspecialchars((string) $lastRun['started_at'], ENT_QUOTES, 'UTF-8') ?> UTC.
                 <?php else: ?>
-                    ⏳ No cron run detected yet. Add the tasks above, wait one minute, then press Verify.
+                    &#8987; No cron run detected yet. Add the line above, wait one minute, then press Verify.
                 <?php endif; ?>
             </p>
             <form method="post" class="form">

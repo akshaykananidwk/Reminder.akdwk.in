@@ -232,14 +232,28 @@ try {
         }
     }
 
+    // The master's heartbeat is the real answer: every individual job looks
+    // "not overdue yet" for a while after the crontab is removed.
+    $tick = \App\Services\Scheduler::minutesSinceTick();
+
+    if ($tick === null) {
+        echo "   ❌ master cron — has never run\n";
+        $stale++;
+    } elseif ($tick > 5) {
+        echo "   ⚠️  master cron — last ran {$tick} min ago\n";
+        $stale++;
+    } else {
+        echo "   ✅ master cron — {$tick} min ago\n";
+    }
+
     if ($stale > 0) {
-        echo "\n   Add these to aaPanel → Cron (every 1 minute):\n";
-
-        foreach (array_keys($expected) as $job) {
-            echo "     php " . $app->root() . "/cron/$job.php\n";
-        }
-
-        echo "\n   Without them nothing is ever sent, however correct the rest is.\n";
+        echo "\n   One line in aaPanel → Cron runs everything:\n";
+        echo "     * * * * * php " . $app->root() . "/cron/run.php\n";
+        echo "\n   Without it nothing is ever sent, however correct the rest is.\n";
+        echo "   To run everything due right now:\n";
+        echo "     php " . $app->root() . "/cron/run.php\n";
+        echo "   To see the schedule:\n";
+        echo "     php " . $app->root() . "/cron/run.php --list\n";
     }
 
     $queued = (int) $db->value('SELECT COUNT(*) FROM wa_outbound_queue WHERE status = "queued"', [], 0);

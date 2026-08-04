@@ -12,64 +12,203 @@ use App\Services\BackupService;
 use App\Services\CronService;
 use App\Services\FcmService;
 use App\Services\ReportService;
+use App\Services\Scheduler;
 use App\Services\WhatsAppService;
 
 class MonitorController extends Controller
 {
     /* ----------------------------------------------------------------- Cron */
 
+    /**
+     * Cron settings: one page for every scheduled task in the application.
+     */
     public function cron(): void
     {
         $this->requireAdmin();
 
+        $db = App::i()->db();
+        $filter = trim((string) Request::get('job', ''));
+        $page = max(1, (int) Request::get('page', 1));
+        $perPage = 40;
+
+        $where = '';
+        $params = [];
+
+        if ($filter !== '') {
+            $where = 'WHERE job = ?';
+            $params[] = $filter;
+        }
+
+        $total = (int) $db->value('SELECT COUNT(*) FROM cron_runs ' . $where, $params, 0);
+
         $this->view('admin/cron', [
-            'title'     => __('admin.cron'),
-            'pageTitle' => __('admin.cron'),
-            'status'    => CronService::status(),
-            'stale'     => CronService::staleJobs(),
-            'runs'      => App::i()->db()->all('SELECT * FROM cron_runs ORDER BY id DESC LIMIT 60'),
-            'cronToken' => (string) App::i()->config('security.cron_token', ''),
-            'root'      => App::i()->root(),
+            'title'      => __('admin.cron'),
+            'pageTitle'  => __('admin.cron'),
+            'jobs'       => Scheduler::overview(),
+            'health'     => Scheduler::health(),
+            'lastTick'   => Scheduler::lastTick(),
+            'tickAgo'    => Scheduler::minutesSinceTick(),
+            'settings'   => App::i()->settings(),
+            'timezone'   => Scheduler::timezone(),
+            'filter'     => $filter,
+            'runs'       => $db->all(
+                'SELECT * FROM cron_runs ' . $where . ' ORDER BY id DESC LIMIT ' . $perPage
+                . ' OFFSET ' . (($page - 1) * $perPage),
+                $params
+            ),
+            'runPage'    => $page,
+            'runPages'   => max(1, (int) ceil($total / $perPage)),
+            'cronToken'  => (string) App::i()->config('security.cron_token', ''),
+            'root'       => App::i()->root(),
         ], 'layouts/admin');
     }
 
     /**
-     * "Run now" from the admin panel — the job runs in this request.
+     * "Run now" — the job runs inside this request.
+     *
+     * Forced past its schedule but never past its lock: if the master is
+     * already running it, this waits for the next time rather than doing the
+     * work twice.
      */
     public function runCron(): void
     {
         $this->requireAdmin();
 
         $job = (string) Request::post('job', '');
-        $allowed = ['dispatcher', 'ai_queue', 'wa_queue', 'recurrence', 'google_sync', 'morning_brief', 'daily_summary', 'subscriptions', 'backup', 'cleanup'];
 
-        if (!in_array($job, $allowed, true)) {
+        if (Scheduler::definition($job) === null) {
             Session::flash('error', __('common.not_found'));
             Response::back(url('/admin/cron'));
         }
 
-        $script = App::i()->root() . '/cron/' . $job . '.php';
+        @set_time_limit(600);
 
-        if (!is_file($script)) {
-            Session::flash('error', 'Script missing: ' . $job);
+        $result = Scheduler::runJob($job, 'admin', true);
+
+        AuditService::log('cron.run', 'cron', null, ['job' => $job, 'status' => $result['status']]);
+
+        Session::flash(
+            $result['status'] === 'error' ? 'error' : 'success',
+            sprintf(
+                '%s — %s%s (%d ms)',
+                $job,
+                $result['status'],
+                $result['message'] === '' ? '' : ': ' . str_limit($result['message'], 250),
+                $result['duration_ms']
+            )
+        );
+
+        Response::redirect(url('/admin/cron'));
+    }
+
+    /** Run every job that is due, exactly as the master cron would. */
+    public function runDue(): void
+    {
+        $this->requireAdmin();
+
+        @set_time_limit(600);
+
+        $result = Scheduler::tick('admin', 120);
+
+        AuditService::log('cron.tick', 'cron', null, $result);
+
+        Session::flash(
+            $result['failed'] > 0 ? 'error' : 'success',
+            sprintf(
+                'ran %d, failed %d, skipped %d in %.1fs',
+                $result['ran'],
+                $result['failed'],
+                $result['skipped'],
+                $result['seconds']
+            )
+        );
+
+        Response::redirect(url('/admin/cron'));
+    }
+
+    public function toggleCron(): void
+    {
+        $this->requireAdmin();
+
+        $job = (string) Request::post('job', '');
+        $enabled = Request::bool('enabled');
+
+        if (!Scheduler::setEnabled($job, $enabled)) {
+            Session::flash('error', __('common.not_found'));
             Response::back(url('/admin/cron'));
         }
 
-        @set_time_limit(300);
+        AuditService::log('cron.toggle', 'cron', null, ['job' => $job, 'enabled' => $enabled]);
+        Session::flash('success', $job . ' is now ' . ($enabled ? 'enabled' : 'disabled') . '.');
 
-        ob_start();
+        Response::back(url('/admin/cron'));
+    }
 
-        try {
-            include $script;
-            $output = trim((string) ob_get_clean());
-        } catch (\Throwable $e) {
-            ob_end_clean();
-            $output = 'Error: ' . $e->getMessage();
+    public function scheduleCron(): void
+    {
+        $this->requireAdmin();
+
+        $result = Scheduler::setSchedule(
+            (string) Request::post('job', ''),
+            (string) Request::post('schedule_kind', 'every'),
+            (int) Request::post('interval_seconds', 60),
+            trim((string) Request::post('run_at', '')) ?: null,
+            Request::post('weekday') === null ? null : (int) Request::post('weekday')
+        );
+
+        AuditService::log('cron.schedule', 'cron', null, ['job' => Request::post('job', '')]);
+        Session::flash($result['ok'] ? 'success' : 'error', $result['message']);
+
+        Response::back(url('/admin/cron'));
+    }
+
+    /** Queue a failed job to run again on the next pass. */
+    public function retryCron(): void
+    {
+        $this->requireAdmin();
+
+        $job = (string) Request::post('job', '');
+
+        if (!Scheduler::retry($job)) {
+            Session::flash('error', __('common.not_found'));
+            Response::back(url('/admin/cron'));
         }
 
-        AuditService::log('cron.run', 'cron', null, ['job' => $job]);
+        AuditService::log('cron.retry', 'cron', null, ['job' => $job]);
+        Session::flash('success', $job . ' will run on the next pass, and its failure count has been reset.');
 
-        Session::flash('success', $job . ' — ' . ($output !== '' ? str_limit($output, 300) : 'completed'));
+        Response::back(url('/admin/cron'));
+    }
+
+    /** Clear a lock left behind by a run that died. */
+    public function unlockCron(): void
+    {
+        $this->requireAdmin();
+
+        $job = (string) Request::post('job', '');
+        Scheduler::unlock($job);
+
+        AuditService::log('cron.unlock', 'cron', null, ['job' => $job]);
+        Session::flash('success', 'Lock cleared for ' . $job . '.');
+
+        Response::back(url('/admin/cron'));
+    }
+
+    /** Global stop: keeps the master running but makes it do nothing. */
+    public function saveCronSettings(): void
+    {
+        $this->requireAdmin();
+
+        $settings = App::i()->settings();
+        $settings->set('scheduler_enabled', Request::bool('scheduler_enabled') ? '1' : '0', false, 'cron');
+        $settings->set('scheduler_budget_seconds', (string) max(10, min(300, (int) Request::post('scheduler_budget_seconds', 50))), false, 'cron');
+        $settings->set('scheduler_lock_stale_minutes', (string) max(5, (int) Request::post('scheduler_lock_stale_minutes', 30)), false, 'cron');
+        $settings->set('scheduler_history_days', (string) max(3, (int) Request::post('scheduler_history_days', 30)), false, 'cron');
+        $settings->refresh();
+
+        AuditService::log('cron.settings', 'settings');
+        Session::flash('success', __('common.saved'));
+
         Response::redirect(url('/admin/cron'));
     }
 

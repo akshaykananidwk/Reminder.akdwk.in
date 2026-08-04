@@ -49,6 +49,10 @@ if ($full) {
 
     $checks['cron'] = $stale === [] ? 'ok' : 'stale';
     $checks['stale_jobs'] = array_map(static fn ($job) => $job['job'], $stale);
+    // The single most useful number here: how long since the one server cron
+    // last woke the scheduler. Everything else is downstream of it.
+    $checks['scheduler_last_tick'] = \App\Services\Scheduler::lastTick();
+    $checks['scheduler_minutes_ago'] = \App\Services\Scheduler::minutesSinceTick();
     $checks['whatsapp_gateway'] = \App\Services\WhatsAppService::gatewayHealthy() ? 'ok' : 'failing';
     $checks['fcm'] = \App\Services\FcmService::isConfigured() ? 'configured' : 'not_configured';
     $checks['webroot_exposure'] = BackupService::auditWebroot();

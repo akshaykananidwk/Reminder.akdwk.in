@@ -368,10 +368,12 @@ assertThat('the page behind it cannot scroll', str_contains($js, 'nav-locked'));
 
 echo "\n=== 8. A reply goes back on the channel it came from ===\n\n";
 
-$aiCron = (string) file_get_contents(__DIR__ . '/../cron/ai_queue.php');
+// Inbound processing moved out of cron/ai_queue.php into a registered job when
+// the scheduler was centralised. The behaviour under test did not change.
+$aiCron = (string) file_get_contents(__DIR__ . '/../app/jobs/AiQueueJob.php');
 
 assertThat('a Telegram message is answered on Telegram',
-    str_contains($aiCron, "\$job['source'] === 'telegram'")
+    str_contains($aiCron, "\$job['source'] !== 'telegram'")
     && str_contains($aiCron, 'TelegramService::sendToUser'));
 
 assertThat('the reply is no longer WhatsApp-only',

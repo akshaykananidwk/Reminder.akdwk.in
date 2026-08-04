@@ -1,45 +1,18 @@
 <?php
 
 /**
- * cron/wa_queue.php — every 1 minute.
- * Drains the outbound WhatsApp queue at the configured rate with retries.
+ * cron/wa_queue.php — WhatsApp / Telegram outbound queue.
  *
- *   * * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/wa_queue.php >/dev/null 2>&1
+ * Superseded by the centralised scheduler. One crontab line now runs
+ * everything:
+ *
+ *     * * * * * /usr/bin/php /www/wwwroot/reminder.akdwk.in/cron/run.php >/dev/null 2>&1
+ *
+ * This wrapper is kept so an existing crontab keeps working. It runs the same
+ * job through the same scheduler, with the same lock, so nothing is executed
+ * twice. Add --force to run it regardless of the schedule.
  */
 
-require_once __DIR__ . '/../app/bootstrap.php';
+$jobKey = 'wa_queue';
 
-use App\Core\App;
-use App\Core\Logger;
-use App\Services\CronService;
-use App\Services\WhatsAppService;
-
-if (!App::i()->isInstalled()) {
-    fwrite(STDERR, "Krishna Reminder is not installed.\n");
-    exit(1);
-}
-
-if (!CronService::begin('wa_queue', PHP_SAPI === 'cli' ? 'cli' : 'web')) {
-    return; // Previous run still in progress.
-}
-
-$status = 'ok';
-$message = '';
-$processed = 0;
-
-try {
-    // At the default 30/minute rate, 40 is comfortably more than one tick.
-    $result = WhatsAppService::processQueue(40);
-    $processed = $result['sent'] + $result['failed'];
-    $message = sprintf('sent=%d failed=%d', $result['sent'], $result['failed']);
-} catch (Throwable $e) {
-    $status = 'error';
-    $message = $e->getMessage();
-    Logger::exception($e, 'wa_queue');
-}
-
-CronService::finish($processed, $status, $message);
-
-if (PHP_SAPI === 'cli') {
-    echo '[wa_queue] ' . $message . PHP_EOL;
-}
+require __DIR__ . '/_legacy.php';
